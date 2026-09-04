@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cooee</title>
+    <link rel="stylesheet" href="/src/theme.css" />
+    <link rel="stylesheet" href="/src/overlay/overlay.css" />
+  </head>
+  <body>
+    <div class="pill" id="pill" data-state="idle">
+      <!-- The call: rings propagate outward while capturing. -->
+      <div class="signal" aria-hidden="true">
+        <span class="core"></span>
+        <span class="ring"></span>
+        <span class="ring"></span>
+      </div>
+      <div class="bars" id="bars">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="label" id="label">Ready</div>
+    </div>
+    <script type="module" src="/src/overlay/overlay.ts"></script>
+  </body>
+</html>

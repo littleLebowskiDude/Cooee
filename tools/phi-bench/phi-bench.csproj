@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Phi Silica lives in the Windows App SDK, which needs a Windows TFM. -->
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.26100.0</TargetPlatformMinVersion>
+    <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
+    <!-- Unpackaged console app: the SDK bootstrapper self-initialises. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>PhiBench</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The AppX container cannot read the repo, so the corpus ships with it. -->
+    <None Include="../../bench/transcripts.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.*" />
+  </ItemGroup>
+</Project>

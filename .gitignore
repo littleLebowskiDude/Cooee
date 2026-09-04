@@ -1,0 +1,22 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+models/*.bin
+models/*.gguf
+.env
+*.log
+
+# C# experiment build output (regenerate with `dotnet publish`)
+tools/phi-bench/pkg/
+tools/phi-bench/bin/
+tools/phi-bench/obj/
+tools/phi-winui/pkg/
+tools/phi-winui/bin/
+tools/phi-winui/obj/
+bench/phi-results.json
+
+# Large or generated
+models/phi/
+models/*.wav
+src-tauri/gen/schemas/

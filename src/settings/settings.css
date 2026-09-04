@@ -1,0 +1,90 @@
+body { background: var(--bg); }
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 28px 96px;
+}
+
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 12px; }
+
+header { margin-bottom: 32px; }
+.engine { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+.engine[data-state="failed"] { color: var(--error); }
+.engine[data-state="ready"] { color: var(--injecting); }
+
+.model-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: start; }
+.model-row button { margin-top: 6px; }
+code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
+
+section {
+  border-top: 1px solid var(--border);
+  padding: 24px 0;
+}
+
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+
+input, select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+input:focus, select:focus { outline: 2px solid var(--thinking); outline-offset: 1px; }
+
+.hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+
+#hotkey-custom { margin-top: 12px; }
+
+.check { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--text); cursor: pointer; }
+.check input { width: auto; margin: 0; accent-color: var(--listening); }
+#hotkey-custom[hidden] { display: none; }
+
+button {
+  margin-top: 12px;
+  padding: 9px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+button:hover { border-color: rgba(255, 255, 255, 0.2); }
+button.primary { background: var(--thinking); border-color: transparent; color: #06101f; font-weight: 600; }
+
+.dict-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: start; }
+.dict-add button { margin-top: 6px; }
+
+#dict { list-style: none; padding: 0; margin: 16px 0 0; }
+#dict li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+#dict .arrow { color: var(--muted); }
+#dict button { margin: 0; padding: 4px 10px; font-size: 12px; }
+#dict .empty { color: var(--muted); border: none; }
+
+footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 14px 28px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+#status { color: var(--muted); font-size: 12px; }

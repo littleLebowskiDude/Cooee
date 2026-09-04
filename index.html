@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cooee Settings</title>
+    <link rel="stylesheet" href="/src/theme.css" />
+    <link rel="stylesheet" href="/src/settings/settings.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Cooee</h1>
+        <p class="engine" id="engine">…</p>
+      </header>
+
+      <section>
+        <h2>Model</h2>
+        <label>
+          whisper.cpp model
+          <div class="model-row">
+            <input id="model" type="text" readonly placeholder="None — mock engine, no transcription" />
+            <button id="pick">Choose…</button>
+            <button id="clear">Clear</button>
+          </div>
+        </label>
+        <p class="hint">
+          A GGML file such as <code>ggml-base.en.bin</code> (141 MB, English, fast) from
+          huggingface.co/ggerganov/whisper.cpp. Loads in the background when you save.
+        </p>
+        <label>
+          Inference threads
+          <input id="threads" type="number" min="1" max="64" placeholder="auto (up to 4)" />
+        </label>
+        <p class="hint">Fewer is faster on a busy machine. Leave blank unless you have measured.</p>
+      </section>
+
+      <section>
+        <h2>Push to talk</h2>
+        <label>
+          Hotkey
+          <select id="hotkey-preset">
+            <option value="ctrl-win">Ctrl + Win — same as Wispr Flow</option>
+            <option value="caps-lock">Caps Lock</option>
+            <option value="right-ctrl">Right Ctrl — full-size keyboards only</option>
+            <option value="right-shift">Right Shift</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
+        <div id="hotkey-custom" hidden>
+          <label>
+            Keys
+            <input id="hotkey" type="text" readonly placeholder="Click, hold the keys together, then release" />
+          </label>
+        </div>
+        <p class="hint">Hold to dictate, release to insert. Applies as soon as you save.</p>
+        <label class="check">
+          <input id="feedback" type="checkbox" />
+          Play a tone when capture starts and stops
+        </label>
+      </section>
+
+      <section>
+        <h2>Insertion</h2>
+        <label>
+          Strategy
+          <select id="injection">
+            <option value="auto">Auto — paste when long, type when short</option>
+            <option value="paste">Always paste (Ctrl+V)</option>
+            <option value="type">Always type (SendInput)</option>
+          </select>
+        </label>
+        <button id="test">Test insertion</button>
+        <p class="hint">Focus another app within 3 seconds to see where the text lands.</p>
+      </section>
+
+      <section>
+        <h2>Dictionary</h2>
+        <p class="hint">Words the model keeps getting wrong. Applied to every transcript.</p>
+        <div class="dict-add">
+          <input id="heard" placeholder="heard as" />
+          <input id="want" placeholder="should be" />
+          <button id="add">Add</button>
+        </div>
+        <ul id="dict"></ul>
+      </section>
+
+      <footer>
+        <span id="status"></span>
+        <button id="save" class="primary">Save</button>
+      </footer>
+    </main>
+    <script type="module" src="/src/settings/settings.ts"></script>
+  </body>
+</html>

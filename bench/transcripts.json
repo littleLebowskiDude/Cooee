@@ -1,0 +1,42 @@
+[
+  {
+    "id": "fillers-simple",
+    "raw": "Um, so I was thinking we should probably, uh, move the meeting to Tuesday because John is out on Monday.",
+    "note": "standalone fillers only; rules should handle this well"
+  },
+  {
+    "id": "already-clean",
+    "raw": "Can you send me the report when you get a chance? I need it before the board meeting on Thursday. Thanks.",
+    "note": "control: nothing to fix. Any edit here is a regression, not an improvement"
+  },
+  {
+    "id": "no-punctuation",
+    "raw": "hey just following up on my last email did you get a chance to look at the proposal",
+    "note": "whisper drops punctuation on fast speech; rules cannot insert sentence breaks"
+  },
+  {
+    "id": "stutter-repeat",
+    "raw": "so basically what i'm saying is that the the migration should happen in two phases first the database then the application layer",
+    "note": "doubled word plus run-on; rules cannot fix either"
+  },
+  {
+    "id": "discourse-markers",
+    "raw": "I think we need to, uh, rethink the whole approach because the current one doesn't scale past about, you know, ten thousand users.",
+    "note": "\"you know\" is a filler phrase, not a single word; rules miss it"
+  },
+  {
+    "id": "technical-terms",
+    "raw": "The API returns a 500 error when the payload is empty. We should add validation, um, probably in the middleware layer.",
+    "note": "checks the model does not mangle technical terms or the number 500"
+  },
+  {
+    "id": "self-correction",
+    "raw": "let's ship it on Friday, no wait, Thursday, because Friday is a public holiday",
+    "note": "spoken self-correction. The hard case: a good rewrite resolves it to Thursday, a bad one drops the reason or picks Friday"
+  },
+  {
+    "id": "list-dictation",
+    "raw": "we need three things first proper error handling second a retry policy and third some actual logging",
+    "note": "should become a list. Rules cannot do this at all"
+  }
+]

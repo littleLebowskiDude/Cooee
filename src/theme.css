@@ -1,0 +1,31 @@
+/* Cooee — a call built to carry.
+ *
+ * Palette is Australian earth: ochre, terracotta, eucalypt, bone, on warm
+ * near-black. Every colour is a token; nothing downstream hardcodes a hex. */
+:root {
+  --bg: #100d0a;
+  --surface: rgba(30, 24, 19, 0.88);
+  --border: rgba(233, 161, 59, 0.14);
+  --text: #f4ece1;
+  --muted: #9b8b79;
+
+  /* Earth accents */
+  --ochre: #e9a13b;
+  --terracotta: #cf6a3f;
+  --eucalypt: #8aa87c;
+  --redearth: #a8442a;
+  --bone: #f4ece1;
+
+  /* Pipeline states */
+  --idle: #6b5c4c;
+  --listening: var(--ochre);
+  --thinking: var(--terracotta);
+  --injecting: var(--eucalypt);
+  --error: #d1453b;
+
+  --radius: 14px;
+  --font: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); color: var(--text); }

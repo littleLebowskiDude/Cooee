@@ -1,0 +1,27 @@
+# Build configuration for whisper.cpp on Windows ARM64.
+#
+# Without these, `cargo build --features whisper` fails in three different ways
+# depending on which one is missing, so they live here rather than in a shell
+# profile — the build then works from PowerShell, bash, `tauri dev`, or an IDE.
+#
+# NOTE: these paths are machine-specific. Adjust if your toolchain differs.
+#
+# Cargo does not override variables already present in the environment, so an
+# explicit `$env:CC = ...` in your shell still wins.
+
+[env]
+# 1. ggml refuses to build with MSVC on ARM:
+#      "MSVC is not supported for ARM, use clang"
+#    Its check is `if (MSVC AND NOT CMAKE_C_COMPILER_ID STREQUAL "Clang")`,
+#    so clang-cl satisfies it.
+CC = "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/Llvm/ARM64/bin/clang-cl.exe"
+CXX = "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/Llvm/ARM64/bin/clang-cl.exe"
+
+# 2. ...but the `cmake` crate defaults to the Visual Studio generator, which
+#    picks its compiler via MSBuild and ignores CMAKE_C_COMPILER entirely.
+#    Ninja makes CC authoritative.
+CMAKE_GENERATOR = "Ninja"
+
+# 3. whisper-rs-sys runs bindgen, which needs libclang at runtime.
+#    From `python -m pip install libclang` (ships an ARM64 DLL).
+LIBCLANG_PATH = "C:/Users/angusfl/AppData/Local/Programs/Python/Python311-arm64/Lib/site-packages/clang/native"
