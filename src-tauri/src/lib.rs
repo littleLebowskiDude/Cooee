@@ -242,6 +242,17 @@ pub fn run() {
             }
         }))
         .manage(state)
+        // Closing the settings window must hide it, not destroy it: a
+        // destroyed window cannot be shown again, so the tray's Settings
+        // entry went dead after the first close.
+        .on_window_event(|window, event| {
+            if window.label() == "settings" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_config,
             set_config,
