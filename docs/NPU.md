@@ -119,6 +119,88 @@ becomes affordable with the NPU, and it beats every CPU option measured.
   DLLs beside the binary.
 - **Context cache**, as above, before this goes near the tray app.
 
+## Implementation plan
+
+The next piece of work. Research done 2026-09-04; nothing below is built yet.
+
+### The crate
+
+`ort` 2.0.0-rc.13 (2026-07-28) binds ONNX Runtime 1.28 and has the plugin-EP
+API behind the `api-22` feature:
+
+- `Environment::current()?.register_ep_library(name, path)` loads
+  `onnxruntime_providers_qnn.dll`.
+- `env.devices()` enumerates `Device`s; filter on `ep() == "QNNExecutionProvider"`
+  and the NPU hardware type.
+- `SessionBuilder::with_devices([dev], Some(&[("backend_type", "htp")]))`
+  binds a session to it; `with_config_entry(k, v)` for session config.
+- `with_intra_threads(4)`, `with_optimization_level`, `commit_from_file`.
+
+Use it with `default-features = false` and `features = ["std", "api-22",
+"load-dynamic", "half"]`: `load-dynamic` so the app loads whatever
+`onnxruntime.dll` is beside it (the pip package's 1.29 works; the API is
+backward compatible) instead of `download-binaries` pulling one at build
+time; `half` for the fp16 tensors. `Device` is `!Send`, so enumerate and
+build the session on the loader thread.
+
+To verify first, in a throwaway example: the env var for the runtime path
+(`ORT_DYLIB_PATH`, or `ort::init_from`), and whether the builder exposes
+ORT's free-dimension override (`AddFreeDimensionOverrideByName`), which
+would pin `batch_size`/`feature_size`/`encoder_sequence_length` at session
+creation and remove the need to ship a pre-fixed encoder file. If not,
+generate `encoder_model_static_opt.onnx` once with the Python script and
+ship that.
+
+### The engine
+
+`src-tauri/src/asr/onnx_npu.rs`, behind a `onnx` Cargo feature, mirroring
+[`bench/npu_whisper.py`](../bench/npu_whisper.py) step for step:
+
+1. **Log-mel** in Rust: 400-point periodic Hann, hop 160, reflect-padded,
+   `realfft` (already in the tree via `rubato`), slaney filterbank computed at
+   load from `config.json`'s `num_mel_bins`, log10, clamp to max−8, (x+4)/4,
+   padded to 3000 frames. Port the numpy version; it matched whisper.cpp.
+2. **Encoder session** on the QNN device with `ep.context_enable=1` and
+   `ep.context_file_path=<app data>/qnn/<model>.onnx` so the 21 s compile
+   happens once per machine; load the context file when it exists. Check the
+   exact key names in ORT 1.29's QNN EP docs before relying on them.
+3. **Decoder session** on the CPU EP, 4 intra-op threads, merged model with
+   `use_cache_branch`. Greedy loop; keep the encoder K/V from the first step
+   (the cache branch returns batch-0 empties). Stop at EOT or 224 tokens.
+4. **Tokenizer decode** from `vocab.json` + `added_tokens.json`: GPT-2
+   byte-level BPE, decode only. `generation_config.json` gives
+   `decoder_start_token_id`, `eos_token_id`, `forced_decoder_ids`.
+5. **Prompting.** whisper.cpp takes the dictionary prompt as text; this
+   engine would need BPE *encoding* to do the same. Skip in v1 — the
+   dictionary's post-hoc replacement still runs — and note it in settings.
+
+### Plumbing
+
+- `Config::model_path` pointing at a **directory** selects this engine; a
+  `.bin` file stays whisper.cpp. `build_engine` in `asr/mod.rs` branches on
+  that. Settings needs a folder picker beside the file picker.
+- Model directory layout is the Hugging Face export as downloaded:
+  `onnx/encoder_model.onnx`, `onnx/decoder_model_merged.onnx`, and the four
+  json files. `small.en` is 970 MB; `base.en` 290 MB as the small option.
+- **DLLs beside the exe**: `onnxruntime.dll`; from the `onnxruntime_qnn`
+  package `onnxruntime_providers_qnn.dll`, `QnnHtp.dll`, `QnnHtpPrepare.dll`,
+  `QnnHtpV73Stub.dll`, `QnnSystem.dll`, `libQnnHtpV73Skel.so`,
+  `libqnnhtpv73.cat` (V73 is the X Elite's HTP generation). For dev, point
+  at the pip site-packages copies. Before bundling, read
+  `Qualcomm_LICENSE.pdf` in that package for redistribution terms.
+
+### Order
+
+1. `--example ort_bench`: Rust reproduction of the Python numbers (mel,
+   encoder on NPU, decoder on CPU, transcript). Nothing else until this
+   matches.
+2. Engine behind `AsrEngine` + config branch + `cargo test` for mel and the
+   tokenizer against fixtures dumped from the Python script.
+3. Context cache, so the second launch is fast.
+4. Settings folder picker and engine name in the header.
+5. Bundling the DLLs; Defender will have opinions about a new unsigned
+   binary loading Qualcomm DLLs, see README.
+
 ## Reproduce
 
 ```powershell
