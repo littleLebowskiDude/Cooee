@@ -86,11 +86,11 @@ body {
    its own keyframes at its own prime-ish duration, so the phases drift and
    the pattern never visibly repeats — enough to read as "hearing you" without
    streaming levels from the audio thread to the webview. */
-.pill[data-state="capturing"] .bars span { animation: listen-a 640ms ease-in-out infinite; }
-.pill[data-state="capturing"] .bars span:nth-child(2) { animation: listen-b 530ms ease-in-out infinite; animation-delay: -210ms; }
-.pill[data-state="capturing"] .bars span:nth-child(3) { animation: listen-c 790ms ease-in-out infinite; animation-delay: -370ms; }
-.pill[data-state="capturing"] .bars span:nth-child(4) { animation: listen-b 610ms ease-in-out infinite; animation-delay: -120ms; }
-.pill[data-state="capturing"] .bars span:nth-child(5) { animation: listen-a 700ms ease-in-out infinite; animation-delay: -450ms; }
+.pill[data-state="capturing"] .bars span { animation: listen-a 1280ms ease-in-out infinite; }
+.pill[data-state="capturing"] .bars span:nth-child(2) { animation: listen-b 1060ms ease-in-out infinite; animation-delay: -420ms; }
+.pill[data-state="capturing"] .bars span:nth-child(3) { animation: listen-c 1580ms ease-in-out infinite; animation-delay: -740ms; }
+.pill[data-state="capturing"] .bars span:nth-child(4) { animation: listen-b 1220ms ease-in-out infinite; animation-delay: -240ms; }
+.pill[data-state="capturing"] .bars span:nth-child(5) { animation: listen-a 1400ms ease-in-out infinite; animation-delay: -900ms; }
 
 @keyframes listen-a {
   0%   { height: 5px; }
