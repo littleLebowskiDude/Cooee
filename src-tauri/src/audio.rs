@@ -11,6 +11,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat, Stream};
 use parking_lot::Mutex;
 use rubato::{FftFixedIn, Resampler};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 /// Guards against a stuck hotkey eating memory. 60 s at 48 kHz mono.
@@ -23,9 +24,28 @@ struct Buffer {
     truncated: bool,
 }
 
+/// Live input level for the HUD: RMS of the most recent callback chunk.
+///
+/// Written by the audio callback with one atomic store, read by the meter
+/// thread. Deliberately not behind the buffer mutex, so reading the level
+/// never holds up the callback.
+#[derive(Clone, Default)]
+pub struct Meter(Arc<AtomicU32>);
+
+impl Meter {
+    pub fn rms(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
+    }
+
+    fn store(&self, rms: f32) {
+        self.0.store(rms.to_bits(), Ordering::Relaxed);
+    }
+}
+
 pub struct Capture {
     stream: Stream,
     buffer: Arc<Mutex<Buffer>>,
+    meter: Meter,
     src_rate: u32,
     pub device_name: String,
 }
@@ -52,6 +72,8 @@ impl Capture {
 
         let buffer = Arc::new(Mutex::new(Buffer::default()));
         let sink = buffer.clone();
+        let meter = Meter::default();
+        let level = meter.clone();
 
         let on_error = |e| tracing::error!("audio stream error: {e}");
 
@@ -66,9 +88,17 @@ impl Capture {
                             buf.truncated = true;
                             return;
                         }
+                        let mut energy = 0.0f32;
+                        let mut frames = 0usize;
                         for frame in data.chunks(channels) {
                             let sum: f32 = frame.iter().map(|s| f32::from_sample(*s)).sum();
-                            buf.samples.push(sum / channels as f32);
+                            let mono = sum / channels as f32;
+                            energy += mono * mono;
+                            frames += 1;
+                            buf.samples.push(mono);
+                        }
+                        if frames > 0 {
+                            level.store((energy / frames as f32).sqrt());
                         }
                     },
                     on_error,
@@ -91,9 +121,15 @@ impl Capture {
         Ok(Self {
             stream,
             buffer,
+            meter,
             src_rate,
             device_name,
         })
+    }
+
+    /// Handle for reading the live level while capture continues.
+    pub fn meter(&self) -> Meter {
+        self.meter.clone()
     }
 
     /// Stops the stream and returns 16 kHz mono f32, ready for the ASR engine.

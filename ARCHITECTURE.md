@@ -49,7 +49,7 @@ Every transition emits an event to the overlay HUD so the pill can animate.
 |---|---|
 | `pipeline.rs` | The state machine above. Owns transitions; everything else is a leaf it calls. |
 | `hotkey.rs` | `WH_KEYBOARD_LL` low-level hook on a dedicated thread with its own message pump. Matches a chord (default Ctrl+Win) against system key state, swallows keys with solo side effects (Win, Alt, Caps Lock) so they never fire, and takes a new chord at runtime. |
-| `audio.rs` | `cpal` WASAPI capture → resample to 16 kHz mono f32 → lock-free ring buffer. |
+| `audio.rs` | `cpal` WASAPI capture → resample to 16 kHz mono f32 → lock-free ring buffer. The callback also publishes the chunk's RMS through an atomic, which a meter thread in `pipeline.rs` samples at 20 Hz for the HUD bars. |
 | `vad.rs` | Energy gate + hangover to trim leading/trailing silence before ASR. |
 | `asr/mod.rs` | `AsrEngine` trait. One seam, two implementations. Also `EngineSlot`, the swappable handle the pipeline reads from: models load on a background thread (startup and on change in settings) and swap in when ready, so the tray never waits on a load and a failed load keeps the previous engine. |
 | `asr/whisper_cpp.rs` | Real engine. Feature-gated on `whisper`. |

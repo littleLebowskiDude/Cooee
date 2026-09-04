@@ -66,10 +66,12 @@ The overlay pill animates only what is happening:
 
 - **Capturing** — rings propagate outward from the core on a 1.6 s cycle, offset
   so a second ring launches as the first fades. This is the mark, alive. The
-  level bars run an equaliser that is deliberately *not* driven by the
-  microphone: five bars on five different durations drift out of phase and
-  read as listening without any audio reaching the webview. The label says
-  only "Listening" — no device name, which was long enough to be cut off.
+  level bars follow the microphone: the capture callback publishes a level,
+  the pill reads it twenty times a second on a decibel scale with a fast
+  attack and slow release, and each bar carries its own weight and a little
+  jitter so one number still reads as a spectrum. Until the first level lands
+  a CSS equaliser on five drifting durations stands in. The label says only
+  "Listening" — no device name, which was long enough to be cut off.
 - **Transcribing** — the level bars pulse in sequence, ochre shifting to
   terracotta.
 - **Injecting** — a single eucalypt flash. Brief; the work is done.

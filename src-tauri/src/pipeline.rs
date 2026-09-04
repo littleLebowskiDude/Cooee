@@ -13,15 +13,17 @@
 //! one that lands after release — which is also how Wispr Flow behaves.
 
 use crate::asr::EngineSlot;
-use crate::audio::Capture;
+use crate::audio::{Capture, Meter};
 use crate::config::Config;
 use crate::tone::{self, Tone};
 use crate::{inject, polish, vad};
 use crossbeam_channel::Receiver;
 use parking_lot::RwLock;
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use crate::hotkey::HotkeyEvent;
 
@@ -46,6 +48,10 @@ pub struct StatusEvent {
 /// Anything that wants to observe the pipeline (the Tauri window, tests, a CLI).
 pub trait Observer: Send + Sync {
     fn on_status(&self, event: StatusEvent);
+
+    /// Input level in `0.0..=1.0`, about twenty times a second while
+    /// capturing. Drives the HUD bars; nothing else depends on it.
+    fn on_level(&self, _level: f32) {}
 }
 
 /// No-op observer, used by headless tests.
@@ -60,10 +66,54 @@ pub struct Pipeline {
     pub observer: Arc<dyn Observer>,
 }
 
+/// Forwards the microphone level to the observer for one utterance.
+struct MeterThread {
+    stop: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
+
+impl MeterThread {
+    fn finish(self) {
+        self.stop.store(true, Ordering::Relaxed);
+        let _ = self.handle.join();
+    }
+}
+
+/// Maps a raw RMS to a bar height in `0..=1` on a decibel scale, since
+/// perceived loudness is logarithmic: -50 dBFS (room tone on a quiet mic)
+/// reads as nothing, -10 dBFS (speaking up, close to the mic) as full.
+pub fn level_from_rms(rms: f32) -> f32 {
+    const FLOOR_DB: f32 = -50.0;
+    const CEIL_DB: f32 = -10.0;
+    if rms <= 1e-5 {
+        return 0.0;
+    }
+    let db = 20.0 * rms.log10();
+    ((db - FLOOR_DB) / (CEIL_DB - FLOOR_DB)).clamp(0.0, 1.0)
+}
+
+/// Fast attack, slow release: a syllable lifts the bars at once and they
+/// settle over a few ticks, which reads as a meter rather than a flicker.
+fn meter_loop(meter: Meter, observer: Arc<dyn Observer>, stop: Arc<AtomicBool>) {
+    const TICK: Duration = Duration::from_millis(50);
+    const RELEASE: f32 = 0.7;
+    let mut smoothed = 0.0f32;
+    while !stop.load(Ordering::Relaxed) {
+        let level = level_from_rms(meter.rms());
+        smoothed = if level > smoothed {
+            level
+        } else {
+            smoothed * RELEASE + level * (1.0 - RELEASE)
+        };
+        observer.on_level(smoothed);
+        std::thread::sleep(TICK);
+    }
+}
+
 impl Pipeline {
     /// Drains hotkey events until the channel closes. Blocking.
     pub fn run(self, rx: Receiver<HotkeyEvent>) {
-        let mut capture: Option<Capture> = None;
+        let mut capture: Option<(Capture, Option<MeterThread>)> = None;
 
         for event in rx.iter() {
             match event {
@@ -78,7 +128,8 @@ impl Pipeline {
                             // pill it is truncated noise ("Microphone Array
                             // (Qualcomm ...)") and the bars say "recording".
                             self.emit(State::Capturing, None);
-                            capture = Some(c);
+                            let meter = self.start_meter(c.meter());
+                            capture = Some((c, meter));
                         }
                         Err(e) => {
                             tracing::error!("could not start capture: {e:#}");
@@ -88,7 +139,12 @@ impl Pipeline {
                 }
 
                 HotkeyEvent::Released => {
-                    let Some(c) = capture.take() else { continue };
+                    let Some((c, meter)) = capture.take() else {
+                        continue;
+                    };
+                    if let Some(m) = meter {
+                        m.finish();
+                    }
                     if let Err(e) = self.finish(c) {
                         tracing::error!("dictation failed: {e:#}");
                         self.emit(State::Error, Some(e.to_string()));
@@ -168,6 +224,18 @@ impl Pipeline {
         Ok(())
     }
 
+    fn start_meter(&self, meter: Meter) -> Option<MeterThread> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let observer = self.observer.clone();
+        let flag = stop.clone();
+        let handle = std::thread::Builder::new()
+            .name("cooee-meter".into())
+            .spawn(move || meter_loop(meter, observer, flag))
+            .map_err(|e| tracing::debug!("could not start meter thread: {e}"))
+            .ok()?;
+        Some(MeterThread { stop, handle })
+    }
+
     fn emit(&self, state: State, detail: Option<String>) {
         self.observer.on_status(StatusEvent { state, detail });
     }
@@ -176,5 +244,30 @@ impl Pipeline {
         if self.config.read().audio_feedback {
             tone::play(tone);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::level_from_rms;
+
+    #[test]
+    fn silence_reads_as_nothing() {
+        assert_eq!(level_from_rms(0.0), 0.0);
+        assert_eq!(level_from_rms(0.001), 0.0); // -60 dBFS, below the floor
+    }
+
+    #[test]
+    fn loud_speech_pegs_the_meter() {
+        assert_eq!(level_from_rms(0.5), 1.0); // -6 dBFS, above the ceiling
+    }
+
+    #[test]
+    fn level_rises_monotonically_on_a_log_scale() {
+        let quiet = level_from_rms(0.01); // -40 dBFS
+        let normal = level_from_rms(0.05); // -26 dBFS
+        let loud = level_from_rms(0.2); // -14 dBFS
+        assert!(0.0 < quiet && quiet < normal && normal < loud && loud < 1.0);
+        assert!((quiet - 0.25).abs() < 0.01, "{quiet}");
     }
 }

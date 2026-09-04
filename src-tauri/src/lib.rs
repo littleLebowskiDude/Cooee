@@ -34,6 +34,11 @@ impl Observer for WindowObserver {
             tracing::debug!("could not emit status: {e}");
         }
     }
+
+    fn on_level(&self, level: f32) {
+        // Twenty a second while capturing; a dropped one is invisible.
+        let _ = self.0.emit("level", level);
+    }
 }
 
 /// Shared application state exposed to Tauri commands.

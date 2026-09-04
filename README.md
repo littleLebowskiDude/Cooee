@@ -19,7 +19,7 @@ account, no telemetry.
 
 | Check | Result |
 |---|---|
-| `cargo test` | 33/33 |
+| `cargo test` | 36/36 |
 | `cargo clippy --all-targets` | 0 warnings (with and without `whisper`) |
 | `cargo fmt --check` | clean |
 | `tsc --noEmit` | clean |
@@ -285,7 +285,6 @@ node tools/make-icon.cjs src-tauri/icons
 - LLM polish pass and Command Mode ("make this more formal")
 - Hexagon NPU inference via ONNX Runtime QNN
 - Per-app injection profiles
-- Level bars driven by the microphone (the capture callback could publish an RMS level a few times a second; the overlay bars are CSS-only today)
 
 ## Tried and removed
 

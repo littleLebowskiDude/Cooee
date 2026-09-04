@@ -82,15 +82,17 @@ body {
 .pill[data-state="capturing"] .bars span { background: var(--listening); }
 .pill[data-state="capturing"] { box-shadow: 0 8px 30px rgba(233, 161, 59, 0.2); }
 
-/* Listening: an equaliser that is not wired to the microphone. Each bar runs
-   its own keyframes at its own prime-ish duration, so the phases drift and
-   the pattern never visibly repeats — enough to read as "hearing you" without
-   streaming levels from the audio thread to the webview. */
+/* Listening, before the first microphone level arrives (and as the fallback
+   if none ever does): an equaliser on five different durations, so the phases
+   drift and the pattern never visibly repeats. Once levels flow, `data-live`
+   switches this off and the bars follow the voice from overlay.ts. */
 .pill[data-state="capturing"] .bars span { animation: listen-a 1280ms ease-in-out infinite; }
 .pill[data-state="capturing"] .bars span:nth-child(2) { animation: listen-b 1060ms ease-in-out infinite; animation-delay: -420ms; }
 .pill[data-state="capturing"] .bars span:nth-child(3) { animation: listen-c 1580ms ease-in-out infinite; animation-delay: -740ms; }
 .pill[data-state="capturing"] .bars span:nth-child(4) { animation: listen-b 1220ms ease-in-out infinite; animation-delay: -240ms; }
 .pill[data-state="capturing"] .bars span:nth-child(5) { animation: listen-a 1400ms ease-in-out infinite; animation-delay: -900ms; }
+
+.pill[data-live] .bars span { animation: none; }
 
 @keyframes listen-a {
   0%   { height: 5px; }
