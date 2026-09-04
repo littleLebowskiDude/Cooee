@@ -34,6 +34,13 @@ once_cell = "1"
 whisper-rs = { version = "0.14", optional = true }
 tauri-plugin-dialog = "2"
 
+# ONNX Runtime engine (encoder on the Hexagon NPU via the QNN plugin EP).
+# `load-dynamic`: the app loads whatever onnxruntime.dll sits beside it (or
+# ORT_DYLIB_PATH) rather than downloading a binary at build time. See docs/NPU.md.
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-22", "load-dynamic", "half"] }
+realfft = { version = "3", optional = true }
+half = { version = "2", optional = true }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
   "Win32_Foundation",
@@ -48,6 +55,12 @@ windows = { version = "0.58", features = [
 default = []
 # Enable once MSVC ARM64 + CMake are present: cargo build --features whisper
 whisper = ["dep:whisper-rs"]
+# ONNX Runtime + QNN NPU engine: cargo build --features onnx
+onnx = ["dep:ort", "dep:realfft", "dep:half"]
+
+[[example]]
+name = "ort_bench"
+required-features = ["onnx"]
 
 [profile.release]
 opt-level = 3

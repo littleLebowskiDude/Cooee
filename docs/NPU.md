@@ -119,9 +119,49 @@ becomes affordable with the NPU, and it beats every CPU option measured.
   DLLs beside the binary.
 - **Context cache**, as above, before this goes near the tray app.
 
+## Rust reproduction
+
+[`src-tauri/examples/ort_bench.rs`](../src-tauri/examples/ort_bench.rs) is the
+Python script ported to the `ort` crate, stage for stage. Same machine, same
+clip, 2026-09-04:
+
+```powershell
+cargo build --release --features onnx --example ort_bench
+.\src-tauri	argetelease\examples\ort_bench.exe models\whisper-small.en-onnx models\sample.wav
+```
+
+| Stage | `base.en` Python | `base.en` Rust | `small.en` Python | `small.en` Rust |
+|---|---|---|---|---|
+| log-mel | 126 ms | **11 ms** | 126 ms | 9 ms |
+| encoder CPU (ORT, 4 thr) | 460 ms | 474 ms | 1708 ms | 1741 ms |
+| encoder NPU compile | 6.8 s | 6.9 s | 21 s | 19.9 s |
+| encoder NPU, from context cache | — | **640 ms** | | |
+| encoder NPU run | 59 ms | 60 ms | 165 ms | 162 ms |
+| decoder CPU, per token | 10 ms | 8.7 ms | 26 ms | 26.6 ms |
+
+Transcripts are identical to the Python run ("Coo E" for `base.en`, "KUI" for
+`small.en`). Three things the port settled:
+
+- **No pre-fixed encoder file is needed.** `SessionBuilder::with_dimension_override`
+  (ORT's `AddFreeDimensionOverrideByName`) on `batch_size`, `feature_size`
+  and `encoder_sequence_length` puts the as-exported encoder wholly on the
+  NPU: 60 ms, the same as the `_static_opt` file. The model directory ships
+  as downloaded.
+- **The context cache is two session config entries**, `ep.context_enable=1`
+  and `ep.context_file_path=<file>.onnx`. ORT writes an 871-byte wrapper
+  `.onnx` plus `<stem>_qnn.bin` (44 MB for `base.en`) beside it. To reload,
+  open the wrapper as an ordinary model *without* those entries: with
+  `ep.context_enable` set and the file present, session creation fails with
+  "exists already".
+- **The plugin EP is named by its registration.** `register_ep_library(name,
+  path)` sets what `Device::ep()` reports and what prefixes the
+  `with_devices` options (`<name>.backend_type`). Register it as
+  `QNNExecutionProvider`, the name the pip package uses.
+
 ## Implementation plan
 
-The next piece of work. Research done 2026-09-04; nothing below is built yet.
+Research done 2026-09-04. Step 1 (the Rust bench) and the context cache part
+of step 3 are done, above; the rest is not built yet.
 
 ### The crate
 
@@ -143,13 +183,10 @@ backward compatible) instead of `download-binaries` pulling one at build
 time; `half` for the fp16 tensors. `Device` is `!Send`, so enumerate and
 build the session on the loader thread.
 
-To verify first, in a throwaway example: the env var for the runtime path
-(`ORT_DYLIB_PATH`, or `ort::init_from`), and whether the builder exposes
-ORT's free-dimension override (`AddFreeDimensionOverrideByName`), which
-would pin `batch_size`/`feature_size`/`encoder_sequence_length` at session
-creation and remove the need to ship a pre-fixed encoder file. If not,
-generate `encoder_model_static_opt.onnx` once with the Python script and
-ship that.
+Verified in the bench: `ort::init_from(path)` loads the runtime (the
+`ORT_DYLIB_PATH` variable is the fallback), and
+`with_dimension_override(name, size)` pins the three symbolic dims at session
+creation, so nothing needs to be pre-fixed.
 
 ### The engine
 
@@ -191,12 +228,11 @@ ship that.
 
 ### Order
 
-1. `--example ort_bench`: Rust reproduction of the Python numbers (mel,
-   encoder on NPU, decoder on CPU, transcript). Nothing else until this
-   matches.
+1. ~~`--example ort_bench`~~: done, matches (Rust reproduction, above).
 2. Engine behind `AsrEngine` + config branch + `cargo test` for mel and the
    tokenizer against fixtures dumped from the Python script.
-3. Context cache, so the second launch is fast.
+3. ~~Context cache~~: mechanism verified in the bench (640 ms reload); the
+   engine needs to place the file under app data, keyed by model.
 4. Settings folder picker and engine name in the header.
 5. Bundling the DLLs; Defender will have opinions about a new unsigned
    binary loading Qualcomm DLLs, see README.
