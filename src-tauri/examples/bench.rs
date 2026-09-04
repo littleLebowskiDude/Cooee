@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
 
         for run in 1..=2 {
             let t = std::time::Instant::now();
-            let out = engine.transcribe(&pcm)?;
+            let out = engine.transcribe(&pcm, None)?;
             let ms = t.elapsed().as_millis().max(1);
             println!(
                 "  threads={threads} run{run}: {ms} ms ({:.2}x realtime)",

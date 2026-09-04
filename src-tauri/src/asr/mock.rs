@@ -13,7 +13,7 @@ impl AsrEngine for MockEngine {
         "mock"
     }
 
-    fn transcribe(&self, pcm: &[f32]) -> Result<Transcript> {
+    fn transcribe(&self, pcm: &[f32], _prompt: Option<&str>) -> Result<Transcript> {
         let seconds = pcm.len() as f32 / SAMPLE_RATE as f32;
         // This is the *post-normalisation* peak, so it sits near the target for
         // any real speech. The pre-normalisation level — the number that tells

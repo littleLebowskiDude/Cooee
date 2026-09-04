@@ -30,7 +30,12 @@ pub trait AsrEngine: Send + Sync {
 
     /// Transcribe a complete utterance. Blocking: callers run this off the
     /// hotkey and audio threads.
-    fn transcribe(&self, pcm_16k_mono: &[f32]) -> Result<Transcript>;
+    ///
+    /// `prompt` is text the engine treats as having come just before the
+    /// audio. Whisper uses it to bias decoding, so listing names and jargon
+    /// there makes them come out spelled right rather than patched up after.
+    /// Engines without the concept ignore it.
+    fn transcribe(&self, pcm_16k_mono: &[f32], prompt: Option<&str>) -> Result<Transcript>;
 }
 
 /// The engine the pipeline uses, replaceable at runtime.

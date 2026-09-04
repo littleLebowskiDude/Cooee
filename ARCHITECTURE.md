@@ -54,7 +54,7 @@ Every transition emits an event to the overlay HUD so the pill can animate.
 | `asr/mod.rs` | `AsrEngine` trait. One seam, two implementations. Also `EngineSlot`, the swappable handle the pipeline reads from: models load on a background thread (startup and on change in settings) and swap in when ready, so the tray never waits on a load and a failed load keeps the previous engine. |
 | `asr/whisper_cpp.rs` | Real engine. Feature-gated on `whisper`. |
 | `asr/mock.rs` | Returns canned text. Lets the *whole* pipeline run before the C++ toolchain works. |
-| `polish.rs` | Raw transcript → clean text. Filler removal, dictionary, capitalisation. |
+| `polish.rs` | Raw transcript → clean text. Filler removal, dictionary, capitalisation. The dictionary's targets also go to the engine as whisper's initial prompt, so most corrections never need to fire. |
 | `inject.rs` | Text → focused window. |
 | `overlay.rs` | Moves the HUD to the bottom-centre of the work area of the monitor holding the focused window, just before each show. |
 | `tone.rs` | Two short faded sine bursts (rising start, falling stop) via `cpal`, on their own thread so a slow output device never delays capture. Off by `audio_feedback`. |

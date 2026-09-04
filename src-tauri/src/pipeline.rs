@@ -133,7 +133,8 @@ impl Pipeline {
         };
 
         self.emit(State::Transcribing, None);
-        let transcript = engine.transcribe(&audio)?;
+        let prompt = self.config.read().dictionary.prompt();
+        let transcript = engine.transcribe(&audio, prompt.as_deref())?;
 
         let (text, strategy) = {
             let cfg = self.config.read();

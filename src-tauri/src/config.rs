@@ -66,6 +66,47 @@ impl Dictionary {
         self.entries.is_empty()
     }
 
+    /// Longest prompt handed to the engine, in characters. Whisper's prompt
+    /// budget is a couple of hundred tokens; well under that, and short
+    /// enough that a near-silent clip is unlikely to be answered with the
+    /// prompt itself.
+    const PROMPT_MAX_CHARS: usize = 200;
+
+    /// The target spellings, as text for the engine to treat as preceding
+    /// context: `Claude, Cooee.` Corrections still apply afterwards, so a
+    /// word the prompt fails to tip is caught as before. `None` when empty.
+    pub fn prompt(&self) -> Option<String> {
+        let mut seen: Vec<String> = Vec::new();
+        let mut terms: Vec<&str> = Vec::new();
+        for want in self.entries.values() {
+            let want = want.trim();
+            let key = want.to_lowercase();
+            if want.is_empty() || seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            terms.push(want);
+        }
+        if terms.is_empty() {
+            return None;
+        }
+
+        let mut out = String::new();
+        for term in terms {
+            let sep = if out.is_empty() { "" } else { ", " };
+            if out.len() + sep.len() + term.len() + 1 > Self::PROMPT_MAX_CHARS {
+                break;
+            }
+            out.push_str(sep);
+            out.push_str(term);
+        }
+        if out.is_empty() {
+            return None;
+        }
+        out.push('.');
+        Some(out)
+    }
+
     /// Replaces whole words only, so a short entry can't corrupt a longer word.
     pub fn apply(&self, text: &str) -> String {
         if self.entries.is_empty() {
@@ -159,6 +200,35 @@ mod tests {
         let mut d = Dictionary::default();
         d.insert("claude", "Claude");
         assert_eq!(d.apply("hi claude, hello"), "hi Claude, hello");
+    }
+
+    #[test]
+    fn prompt_lists_targets_once_and_ends_with_a_full_stop() {
+        let mut d = Dictionary::default();
+        d.insert("kui", "Cooee");
+        d.insert("cooey", "Cooee");
+        d.insert("claw'd", "Claude");
+        assert_eq!(d.prompt().as_deref(), Some("Claude, Cooee."));
+    }
+
+    #[test]
+    fn prompt_is_none_when_there_is_nothing_to_say() {
+        assert_eq!(Dictionary::default().prompt(), None);
+        let mut d = Dictionary::default();
+        d.insert("x", "   ");
+        assert_eq!(d.prompt(), None);
+    }
+
+    #[test]
+    fn prompt_stays_within_budget() {
+        let mut d = Dictionary::default();
+        for i in 0..100 {
+            d.insert(&format!("heard{i:03}"), &format!("Term{i:03}"));
+        }
+        let p = d.prompt().unwrap();
+        assert!(p.len() <= Dictionary::PROMPT_MAX_CHARS, "{} chars", p.len());
+        assert!(p.ends_with('.'));
+        assert!(p.starts_with("Term000, Term001"));
     }
 
     #[test]

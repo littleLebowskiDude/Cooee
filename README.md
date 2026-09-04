@@ -19,7 +19,7 @@ account, no telemetry.
 
 | Check | Result |
 |---|---|
-| `cargo test` | 30/30 |
+| `cargo test` | 33/33 |
 | `cargo clippy --all-targets` | 0 warnings (with and without `whisper`) |
 | `cargo fmt --check` | clean |
 | `tsc --noEmit` | clean |
@@ -81,6 +81,20 @@ and F-keys (behind Fn on most laptops).
 
 `hotkey` in `config.json` is an array of virtual-key codes; a 0.1.0 `hotkey_vk`
 is migrated to a one-key array on load.
+
+## Dictionary
+
+Settings → Dictionary maps what whisper hears to what you meant (`kui` →
+`Cooee`). It does two things:
+
+1. **Corrects after the fact.** Whole-word, case-insensitive replacement in the
+   polish pass, so a short entry cannot corrupt a longer word.
+2. **Primes the model.** The target spellings are handed to whisper as its
+   initial prompt (`Claude, Cooee.`), which it treats as text that came just
+   before the audio. That is usually enough to tip a name it would otherwise
+   spell phonetically, so the correction rarely has to fire. The prompt is
+   capped at 200 characters: a long one costs decoder context, and on a
+   near-silent clip whisper is prone to echoing its prompt back.
 
 ## Real transcription
 
@@ -199,7 +213,8 @@ failed. What actually worked:
   `rustup toolchain uninstall stable-aarch64-pc-windows-msvc` then reinstall.
 - Expect slow downloads: TLS inspection on the corporate network made a 2 KB
   file from `static.rust-lang.org` take 14 s. Builds are fine; fetches crawl.
-- **Defender for Endpoint flags the installed app.** The NSIS-installed
+
+- **Defender for Endpoint flags the installed app.** The NSIS-installed
   `cooee.exe` was quarantined as `Trojan:Win32/Bearfoos.A!ml` — the `!ml`
   suffix is a machine-learning heuristic, not a signature. An unsigned binary
   that installs a `WH_KEYBOARD_LL` hook, calls `SendInput`, touches the

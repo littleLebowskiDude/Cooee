@@ -59,7 +59,7 @@ impl AsrEngine for WhisperCpp {
         "whisper.cpp"
     }
 
-    fn transcribe(&self, pcm: &[f32]) -> Result<Transcript> {
+    fn transcribe(&self, pcm: &[f32], prompt: Option<&str>) -> Result<Transcript> {
         let _guard = self.lock.lock();
         let started = std::time::Instant::now();
 
@@ -75,6 +75,14 @@ impl AsrEngine for WhisperCpp {
         params.set_print_timestamps(false);
         // Non-speech tokens like (wind blowing) are noise for dictation.
         params.set_suppress_blank(true);
+        // Vocabulary from the personal dictionary. Whisper decodes as if this
+        // text preceded the audio, which is enough to tip a name it would
+        // otherwise spell phonetically. Kept short: a long prompt costs
+        // decoder context and, on near-silent clips, invites the model to
+        // echo it back.
+        if let Some(prompt) = prompt {
+            params.set_initial_prompt(prompt);
+        }
 
         debug_assert_eq!(SAMPLE_RATE, 16_000);
         state
