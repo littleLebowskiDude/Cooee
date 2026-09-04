@@ -1,9 +1,10 @@
 # Whisper on the Hexagon NPU
 
 Status: **in the app behind the `onnx` feature, prompt and bundling
-included. Target model: `small.en`.** The encoder runs on the NPU through ONNX Runtime's QNN
-execution provider at 8-10x the CPU speed; `small.en` is a 1.2 s pipeline
-instead of 5.2 s. Reproduce with [`bench/npu_whisper.py`](../bench/npu_whisper.py)
+included, encoder and decoder both on the NPU. Target model: `small.en`.**
+The encoder runs on the NPU through ONNX Runtime's QNN execution provider
+at 8-10x the CPU speed, the decoder at about 2x; `small.en` is a 0.8 s
+pipeline instead of 5.2 s. Reproduce with [`bench/npu_whisper.py`](../bench/npu_whisper.py)
 (Python) or `cargo run --release --features onnx --example ort_bench` (the
 engine's own code).
 
@@ -130,14 +131,104 @@ it is not worth the quality risk for a 130 ms gain; it may be worth it once
 the prompt is on (not measured). The per-token floor on this CPU is about
 20 ms for `small.en` and 9 ms for `base.en`.
 
+## Decoder on the NPU
+
+Built overnight on 2026-09-05. The idea was right and the gain is real but
+smaller than the encoder's: `small.en` goes from 1.2 s to 0.8 s per
+utterance, `base.en` from 0.43 s to 0.35 s.
+
+### The static decoder
+
+`bench/static_decoder.py` rebuilds whisper's decoder from the export's own
+weights (no PyTorch) as two fixed-shape graphs in the model's `onnx/` folder:
+
+- `cross_kv.onnx`: encoder output -> per-layer cross-attention K/V, once per
+  utterance.
+- `decoder_step_448.onnx` and `decoder_step_448_f16.onnx`: one token, its
+  position, an additive mask, the self-attention cache (448 slots) and the
+  cross K/V -> logits and this token's K/V per layer. The `_f16` file takes
+  the cache and cross tensors as float16 for the NPU; the other is the CPU's.
+
+The host owns the cache (`src/asr/onnx/static_dec.rs`): each step writes
+the returned K/V into slot `position` and unmasks it. The mask is -1e4, not
+-inf, because the HTP runs fp16 and -inf makes NaN in the softmax. The
+graph is exact: greedy tokens on the CPU are identical to the merged
+export's, and it is faster there too (7.5 vs 9 ms/step for `base.en`, 20 vs
+25 for `small.en`) because there is no branch and no shape logic.
+
+The mapping of the export's anonymous MatMul weights to roles: walk the
+no-cache branch, a MatMul's consumer Add names the projection, and the two
+bias-free MatMuls per layer are the key projections, told apart by whether
+they read `encoder_hidden_states`.
+
+### What it took on the NPU
+
+| Step, `base.en` | ms |
+|---|---|
+| fp32 cache + cross as plain inputs (46 MB copied per step) | 10-14 |
+| same, fp16 inputs (23 MB) | 5.5-6.8 |
+| cross K/V baked into the graph (no per-step copy) | 3.0-4.5 |
+| fp16 inputs in HTP shared memory (what ships) | 4.7-6.4 |
+| the same graph on the CPU | 7.5 |
+
+Per-step input copies are the whole story: the decoder's compute is small
+on the NPU, and the 88 MB of cross K/V `small.en` needs every step made the
+naive version slower than the CPU (50 ms/step). The fix is ORT's HTP
+shared memory (rpcmem the HTP reads in place). Getting it:
+
+- The QNN EP registers the memory only for a session created with
+  `enable_htp_shared_memory_allocator=1`, under the device's host-accessible
+  memory descriptor (`EpDevice_MemoryInfo`, name `QnnHtpShared`). The
+  `ort` crate's `Allocator::new(&session, device.memory_info(true))` then
+  works; `MemoryInfo::new(QNN_HTP_SHARED, ...)` does not (memory type
+  mismatch) and the environment's `CreateSharedAllocator` crashes.
+- A session that generates the context (`ep.context_enable`) does not
+  register the memory. The compile is its own pass; the session that is
+  used comes from the cache, like every later launch.
+- Buffers allocated from the session's allocator must be freed before the
+  session: field order in `StepSession`. Dropping a session created with
+  the option and never used crashed the process later; on the fallback
+  path those sessions are leaked instead.
+- Inputs are passed by reference through `Session::run`; an `IoBinding`
+  was 3 ms/step slower on the CPU EP and no faster on the NPU.
+- **Pin CPU sessions to the CPU device.** With the QNN plugin registered, a
+  session left to ORT's default device choice ran the static graph 60%
+  slower (12 vs 7.5 ms/step). `cpu_builder` in `mod.rs` does this for every
+  CPU session now, including the merged decoder and the encoder fallback.
+
+### Measured, the app's own path (`ort_bench`'s engine pass)
+
+| | `base.en` | `small.en` |
+|---|---|---|
+| decoder step, NPU | 4.7-6.4 ms | 11-14 ms |
+| decoder step, CPU static graph | 7.5 ms | 20 ms |
+| cross K/V per utterance (NPU + conversion) | 30-50 ms | 75-120 ms |
+| utterance, 13.6 s clip, before | 432 ms | 1216 ms |
+| utterance, after | **355-381 ms** | **780-870 ms** |
+
+Cache length does not matter (224 slots was no faster than 448), so the
+graphs keep whisper's full 448. The remaining per-step cost on the NPU is
+per-run overhead with 27 inputs, not compute; the Python probe with the
+cross K/V baked in as constants ran 8.4 ms for `small.en`, so ~3 ms/step is
+still going to shared-memory handling.
+
+### The fp16 caveat
+
+The NPU decoder runs fp16 throughout. On the sample it differs from the
+CPU on one token: the made-up word, "Kooie" for "KUI". With the dictionary
+prompt both say "Cooee". On `short.wav` the two agree exactly. That is the
+expected shape of fp16 error, ties on uncertain tokens, and the prompt is
+the guard; if it shows up on real speech, `COOEE_NPU_DECODER=0` keeps the
+decoder on the CPU (exact, 20 ms/step for `small.en`).
+
 ## What is still open
 
-- **Decoder on the NPU.** Left on the CPU here, at its floor (above). Putting
-  it on the HTP needs a static maximum sequence length with an attention
-  mask, which is a different export, not a session option. That is the one
-  remaining lever for `small.en`, and it is a project: an Optimum-style
-  export with fixed-size KV cache buffers, then the same QNN compile and
-  context cache as the encoder.
+- **Per-step overhead on the NPU.** ~3 ms/step of the 11-14 for `small.en`
+  is shared-memory handling rather than compute. Fewer, larger inputs (one
+  stacked cache tensor instead of 24) might cut it.
+- **Cross K/V straight into shared memory.** `cross_kv.onnx` returns fp32
+  which the host converts; an fp16 output bound into the step's buffers
+  would save most of the 75-120 ms per utterance.
 - **Turbo.** Parked, see above. If revisited: the int8 export (645 MB) may
   compile where fp16 did not, but the speed ceiling stays below `small.en`.
 - **Nothing that blocks shipping.** Bundling and the prompt are done (see
@@ -277,7 +368,8 @@ creation, so nothing needs to be pre-fixed.
    decodes the sample's ids against the real vocabulary when the export is
    present.
 3. ~~Context cache~~: `%LOCALAPPDATA%\cooee\qnn\<model dir>-<encoder
-   size>.onnx` plus its `_qnn.bin`. A context that fails to load is deleted
+   size>.onnx` plus its `_qnn.bin` (and `<model dir>-<graph stem>-<size>` for
+   the decoder graphs). A context that fails to load is deleted
    and recompiled. `base.en` loads in 1.8 s from the cache, 8 s without.
 4. ~~Settings folder picker and engine name in the header~~: **Folder...**
    beside **File...**; the header reads `ONNX Runtime (NPU)` or `(CPU)`.

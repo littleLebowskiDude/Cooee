@@ -156,6 +156,18 @@ The dictionary prompt works as it does with whisper.cpp (`merges.txt` is what
 makes that possible; without it the engine runs unprompted and the
 dictionary's replacements still apply).
 
+The decoder runs on the NPU too when the model folder has the static-shape
+graphs, which `bench/static_decoder.py` builds from the export's weights:
+
+```powershell
+python -m pip install onnx numpy
+python bench/static_decoder.py models/whisper-small.en-onnx   # writes onnx/cross_kv.onnx, onnx/decoder_step_448*.onnx
+```
+
+Without them the merged decoder runs on the CPU as before. The first load
+with them compiles two more graphs (about 20 s for `small.en`, cached like
+the encoder's). `COOEE_NPU_DECODER=0` keeps the decoder on the CPU.
+
 To ship the DLLs, collect them from the pip package and bundle with the
 second config, which adds them as resources; the installers put them in
 `runtime\` under the install directory, where the engine looks first:
@@ -223,10 +235,10 @@ Two findings, both against the plan in [ARCHITECTURE.md](ARCHITECTURE.md):
 **On the NPU** the picture changes. The ONNX engine, same clip, machine idle,
 encoder on the Hexagon NPU and decoder on 4 CPU threads:
 
-| Model | whisper.cpp, 4 threads | ONNX engine, NPU encoder |
-|---|---|---|
-| `base.en` | 2.2 s | **0.42 s** |
-| `small.en` | 5.2 s | **1.2 s** |
+| Model | whisper.cpp, 4 threads | ONNX engine, NPU encoder | + NPU decoder |
+|---|---|---|---|
+| `base.en` | 2.2 s | 0.42 s | **0.36 s** |
+| `small.en` | 5.2 s | 1.2 s | **0.8 s** |
 
 `small.en` on the NPU is faster than `base.en` on the CPU, and it is the
 model that hears "Cooee" as one word. Details in [docs/NPU.md](docs/NPU.md).

@@ -37,7 +37,7 @@ tauri-plugin-dialog = "2"
 # ONNX Runtime engine (encoder on the Hexagon NPU via the QNN plugin EP).
 # `load-dynamic`: the app loads whatever onnxruntime.dll sits beside it (or
 # ORT_DYLIB_PATH) rather than downloading a binary at build time. See docs/NPU.md.
-ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-22", "load-dynamic", "half"] }
+ort = { version = "=2.0.0-rc.13", optional = true, default-features = false, features = ["std", "api-23", "load-dynamic", "half"] }
 realfft = { version = "3", optional = true }
 half = { version = "2", optional = true }
 

@@ -14,6 +14,7 @@
 
 pub mod mel;
 pub mod runtime;
+pub mod static_dec;
 pub mod tokenizer;
 
 use super::{AsrEngine, Transcript};
@@ -32,7 +33,7 @@ use tokenizer::Tokenizer;
 
 /// Whisper's decoder context is 448 positions, shared by the prompt and
 /// the output.
-const N_CTX: usize = 448;
+pub(crate) const N_CTX: usize = 448;
 /// The most prompt tokens whisper keeps: half the context, less one.
 const MAX_PROMPT_TOKENS: usize = N_CTX / 2 - 1;
 
@@ -65,6 +66,9 @@ impl Generation {
 pub struct ModelInfo {
     pub n_mels: usize,
     pub d_model: usize,
+    pub decoder_layers: usize,
+    pub decoder_heads: usize,
+    pub vocab: usize,
     pub generation: Generation,
 }
 
@@ -90,18 +94,30 @@ pub fn read_model_info(dir: &Path) -> Result<ModelInfo> {
     Ok(ModelInfo {
         n_mels: cfg["num_mel_bins"].as_u64().unwrap_or(80) as usize,
         d_model: cfg["d_model"].as_u64().context("d_model")? as usize,
+        decoder_layers: cfg["decoder_layers"].as_u64().context("decoder_layers")? as usize,
+        decoder_heads: cfg["decoder_attention_heads"].as_u64().context("decoder_attention_heads")? as usize,
+        vocab: cfg["vocab_size"].as_u64().context("vocab_size")? as usize,
         generation: Generation { sot_ids, eot, start_of_prev },
     })
 }
 
 /// Builder errors carry the builder back for recovery, which makes them
 /// `!Send`; keep the message only.
-fn sb(r: BuilderResult) -> Result<SessionBuilder> {
+pub(crate) fn sb(r: BuilderResult) -> Result<SessionBuilder> {
     r.map_err(|e| anyhow!("{e}"))
 }
 
-fn quiet_builder() -> Result<SessionBuilder> {
+pub(crate) fn quiet_builder() -> Result<SessionBuilder> {
     sb(Session::builder()?.with_log_level(LogLevel::Error))
+}
+
+/// A builder pinned to the CPU EP. With the QNN plugin registered, a session
+/// left to ORT's default device choice ran the same graph 60% slower.
+pub(crate) fn cpu_builder(threads: usize) -> Result<SessionBuilder> {
+    let env = Environment::current()?;
+    let cpu = env.devices().filter(|d| d.ep().ok() == Some("CPUExecutionProvider"));
+    let b = sb(quiet_builder()?.with_intra_threads(threads))?;
+    sb(b.with_devices(cpu, None))
 }
 
 /// Where the encoder ended up.
@@ -127,16 +143,46 @@ pub fn build_encoder(
             Err(e) => tracing::warn!("NPU encoder failed ({e:#}); falling back to the CPU"),
         }
     }
-    let session = sb(quiet_builder()?.with_intra_threads(threads))?
+    let session = cpu_builder(threads)?
         .commit_from_file(encoder)
         .with_context(|| format!("load encoder {}", encoder.display()))?;
     Ok((session, Placement::Cpu))
 }
 
 fn build_npu_encoder(encoder: &Path, n_mels: usize, cache_dir: Option<&Path>) -> Result<Session> {
+    // The QNN compiler needs static shapes. Pinning the Optimum export's
+    // symbolic dims here puts the whole graph on the NPU (docs/NPU.md).
+    let dims = [("batch_size", 1), ("feature_size", n_mels as i64), ("encoder_sequence_length", mel::N_FRAMES as i64)];
+    build_npu_session(encoder, cache_dir, &dims, &[])
+}
+
+/// A session on the QNN NPU for `model`, through its cached compiled context
+/// when there is one. `dim_overrides` pin symbolic dims; `extra` are further
+/// QNN EP options (without the EP-name prefix).
+pub(crate) fn build_npu_session(
+    model: &Path,
+    cache_dir: Option<&Path>,
+    dim_overrides: &[(&str, i64)],
+    extra: &[(&str, &str)],
+) -> Result<Session> {
     let env = Environment::current()?;
-    let opts = [(format!("{}.backend_type", runtime::QNN_EP), "htp".to_string())];
-    let cache = cache_dir.map(|dir| context_path(dir, encoder));
+    let mut opts = vec![(format!("{}.backend_type", runtime::QNN_EP), "htp".to_string())];
+    opts.extend(extra.iter().map(|(k, v)| (format!("{}.{k}", runtime::QNN_EP), v.to_string())));
+    let cache = cache_dir.map(|dir| context_path(dir, model));
+
+    // A session that generates the context skips some of the EP's setup (the
+    // shared-memory allocator, for one), so when there is a cache directory
+    // the compile is its own pass with no extra options, and the session that
+    // is used comes from the cache like every later launch.
+    if let (Some(ctx), false) = (cache.as_ref(), extra.is_empty()) {
+        if !ctx.exists() {
+            let compile = build_npu_session(model, cache_dir, dim_overrides, &[])?;
+            drop(compile);
+            if !ctx.exists() {
+                bail!("compiling {} left no context at {}", model.display(), ctx.display());
+            }
+        }
+    }
 
     // A cached context loads as an ordinary model. If it is stale or damaged
     // the session fails; delete it and compile again below.
@@ -146,7 +192,7 @@ fn build_npu_encoder(encoder: &Path, n_mels: usize, cache_dir: Option<&Path>) ->
         let session = b.commit_from_file(ctx);
         match session {
             Ok(s) => {
-                tracing::info!(ms = t.elapsed().as_millis() as u64, ctx = %ctx.display(), "NPU encoder from cached context");
+                tracing::info!(ms = t.elapsed().as_millis() as u64, ctx = %ctx.display(), "NPU session from cached context");
                 return Ok(s);
             }
             Err(e) => {
@@ -156,11 +202,9 @@ fn build_npu_encoder(encoder: &Path, n_mels: usize, cache_dir: Option<&Path>) ->
         }
     }
 
-    // The QNN compiler needs static shapes. Pinning the Optimum export's
-    // symbolic dims here puts the whole graph on the NPU (docs/NPU.md).
     let mut b = quiet_builder()?;
-    for (sym, size) in [("batch_size", 1), ("feature_size", n_mels as i64), ("encoder_sequence_length", mel::N_FRAMES as i64)] {
-        b = sb(b.with_dimension_override(sym, size))?;
+    for (sym, size) in dim_overrides {
+        b = sb(b.with_dimension_override(sym, *size))?;
     }
     if let Some(ctx) = &cache {
         if let Some(parent) = ctx.parent() {
@@ -172,23 +216,25 @@ fn build_npu_encoder(encoder: &Path, n_mels: usize, cache_dir: Option<&Path>) ->
     let mut b = sb(b.with_devices(runtime::npu_devices(&env), Some(&opts)))?;
     let t = Instant::now();
     let session = b
-        .commit_from_file(encoder)
-        .with_context(|| format!("compile {} for the NPU", encoder.display()))?;
-    tracing::info!(ms = t.elapsed().as_millis() as u64, "NPU encoder compiled");
+        .commit_from_file(model)
+        .with_context(|| format!("compile {} for the NPU", model.display()))?;
+    tracing::info!(ms = t.elapsed().as_millis() as u64, model = %model.display(), "compiled for the NPU");
     Ok(session)
 }
 
-/// One context per encoder file, keyed by its directory name and size so a
-/// swapped model never picks up the old compile.
-fn context_path(cache_dir: &Path, encoder: &Path) -> PathBuf {
-    let model = encoder
+/// One context per graph file, keyed by the model directory, the file stem
+/// and its size so a swapped model never picks up the old compile.
+fn context_path(cache_dir: &Path, graph: &Path) -> PathBuf {
+    let model = graph
         .parent()
         .and_then(Path::parent)
         .and_then(Path::file_name)
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "model".into());
-    let size = std::fs::metadata(encoder).map(|m| m.len()).unwrap_or(0);
-    cache_dir.join("qnn").join(format!("{model}-{size}.onnx"))
+    let stem = graph.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let size = std::fs::metadata(graph).map(|m| m.len()).unwrap_or(0);
+    let name = if stem == "encoder_model" { format!("{model}-{size}.onnx") } else { format!("{model}-{stem}-{size}.onnx") };
+    cache_dir.join("qnn").join(name)
 }
 
 /// ORT writes the wrapper `.onnx` plus `<stem>_qnn.bin` beside it.
@@ -201,7 +247,7 @@ fn remove_context(ctx: &Path) {
 
 pub fn build_decoder(decoder: &Path, threads: usize) -> Result<Session> {
     runtime::init()?;
-    sb(quiet_builder()?.with_intra_threads(threads))?
+    cpu_builder(threads)?
         .commit_from_file(decoder)
         .with_context(|| format!("load decoder {}", decoder.display()))
 }
@@ -308,7 +354,7 @@ pub fn greedy_decode(
 }
 
 /// A short cycle repeated three times at the end of the sequence.
-fn repeating(tokens: &[u32]) -> Option<usize> {
+pub(crate) fn repeating(tokens: &[u32]) -> Option<usize> {
     (1..=8).find(|&p| {
         tokens.len() >= 3 * p && {
             let n = tokens.len();
@@ -317,11 +363,19 @@ fn repeating(tokens: &[u32]) -> Option<usize> {
     })
 }
 
+/// The decoder: the merged export on the CPU, or the static-shape graphs
+/// (`static_dec`), which also run on the NPU.
+enum Decoder {
+    Merged(Mutex<Session>),
+    Static(static_dec::StaticDecoder),
+}
+
 pub struct OnnxEngine {
     name: String,
     encoder: Mutex<Session>,
-    decoder: Mutex<Session>,
+    decoder: Decoder,
     encoder_input: String,
+    d_model: usize,
     mel: MelSpectrogram,
     tokenizer: Tokenizer,
     generation: Generation,
@@ -358,23 +412,46 @@ impl OnnxEngine {
         let cache_dir = dirs::cache_dir().map(|d| d.join("cooee"));
         let (encoder, placement) = build_encoder(&encoder_path, info.n_mels, threads, cache_dir.as_deref())?;
         let encoder_input = encoder.inputs().first().context("encoder has no inputs")?.name().to_string();
-        let decoder = build_decoder(&decoder_path, threads)?;
-        let name = match placement {
-            Placement::Npu => "ONNX Runtime (NPU)",
-            Placement::Cpu => "ONNX Runtime (CPU)",
+        // The static decoder's cache length: the largest `decoder_step_<N>`
+        // graph in the folder up to whisper's 448, or COOEE_DEC_MAX to pick.
+        let max_len = std::env::var("COOEE_DEC_MAX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(N_CTX)
+            .min(N_CTX);
+        let dims = static_dec::Dims {
+            layers: info.decoder_layers,
+            heads: info.decoder_heads,
+            head_dim: info.d_model / info.decoder_heads,
+            max_len,
+            vocab: info.vocab,
+        };
+        let (decoder, dec_placement) = if static_dec::files(dir, max_len).is_some() {
+            let d = static_dec::StaticDecoder::build(dir, dims, threads, cache_dir.as_deref())?;
+            let p = d.placement;
+            (Decoder::Static(d), Some(p))
+        } else {
+            (Decoder::Merged(Mutex::new(build_decoder(&decoder_path, threads)?)), None)
+        };
+        let name = match (placement, dec_placement) {
+            (Placement::Npu, Some(Placement::Npu)) => "ONNX Runtime (NPU)",
+            (Placement::Npu, _) => "ONNX Runtime (NPU encoder)",
+            (Placement::Cpu, _) => "ONNX Runtime (CPU)",
         };
         tracing::info!(
             model = %dir.display(),
             ms = started.elapsed().as_millis() as u64,
-            ?placement,
+            encoder = ?placement,
+            decoder = ?dec_placement,
             threads,
             "loaded onnx whisper"
         );
         Ok(Self {
             name: name.into(),
             encoder: Mutex::new(encoder),
-            decoder: Mutex::new(decoder),
+            decoder,
             encoder_input,
+            d_model: info.d_model,
             mel: MelSpectrogram::new(info.n_mels),
             tokenizer,
             generation: info.generation,
@@ -388,17 +465,23 @@ impl OnnxEngine {
         let mel_ms = t.elapsed().as_millis();
 
         let t = Instant::now();
-        let hidden = {
+        let (hidden_shape, hidden) = {
             let mut enc = self.encoder.lock();
             let input = Tensor::from_array(([1, self.mel.n_mels() as i64, mel::N_FRAMES as i64], feats))?;
             let outs = enc.run(ort::inputs![self.encoder_input.as_str() => input])?;
             let (shape, data) = outs[0].try_extract_tensor::<f32>()?;
-            Tensor::from_array((shape.iter().copied().collect::<Vec<i64>>(), data.to_vec()))?
+            (shape.iter().copied().collect::<Vec<i64>>(), data.to_vec())
         };
         let enc_ms = t.elapsed().as_millis();
 
         let t = Instant::now();
-        let ids = greedy_decode(&mut self.decoder.lock(), &hidden, prefix, self.generation.eot)?;
+        let ids = match &self.decoder {
+            Decoder::Static(d) => d.decode(&hidden, self.d_model, prefix, self.generation.eot)?,
+            Decoder::Merged(m) => {
+                let hidden = Tensor::from_array((hidden_shape, hidden))?;
+                greedy_decode(&mut m.lock(), &hidden, prefix, self.generation.eot)?
+            }
+        };
         let dec_ms = t.elapsed().as_millis();
         let n = ids.len().saturating_sub(prefix.len());
         tracing::debug!(mel_ms, enc_ms, dec_ms, tokens = n, "onnx window");
