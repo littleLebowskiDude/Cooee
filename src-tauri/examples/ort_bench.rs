@@ -113,7 +113,10 @@ fn main() -> Result<()> {
     let model_dir = PathBuf::from(&args[1]);
     let wav = PathBuf::from(&args[2]);
     let enc_path = model_dir.join("onnx").join("encoder_model.onnx");
-    let dec_path = model_dir.join("onnx").join("decoder_model_merged.onnx");
+    // DECODER=<file in onnx/> tries a variant (int8, q4); DEC_THREADS=<n> its thread count.
+    let dec_name = std::env::var("DECODER").unwrap_or_else(|_| "decoder_model_merged.onnx".into());
+    let dec_path = model_dir.join("onnx").join(&dec_name);
+    let dec_threads: usize = std::env::var("DEC_THREADS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
 
     let info = onnx::read_model_info(&model_dir)?;
     let tok = Tokenizer::load(&model_dir)?;
@@ -169,8 +172,8 @@ fn main() -> Result<()> {
 
     // Decoder on the CPU, fed by each encoder output
     let t = Instant::now();
-    let mut dec = onnx::build_decoder(&dec_path, 4)?;
-    println!("\ndecoder CPU: load {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
+    let mut dec = onnx::build_decoder(&dec_path, dec_threads)?;
+    println!("\ndecoder CPU ({dec_name}, {dec_threads} thr): load {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
     let enc_len = reference.len() / info.d_model;
     let enc_shape = [1i64, enc_len as i64, info.d_model as i64];
     for (label, enc) in [("CPU encoder", &reference), ("NPU encoder", &npu_out)] {

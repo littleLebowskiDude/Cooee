@@ -106,12 +106,38 @@ generation.
 **Decision: `small.en` on the NPU is the target.** It is the model that only
 becomes affordable with the NPU, and it beats every CPU option measured.
 
+## Decoder on the CPU: the sweep
+
+The decoder is 80% of `small.en`'s time. The cheap levers, measured through
+`ort_bench` (`DECODER=` and `DEC_THREADS=`), same clip, NPU encoder:
+
+| Decoder | Threads | 39 tokens | per token | Transcript |
+|---|---|---|---|---|
+| fp32 merged (587 MB) | 2 | 1207 ms | 30.9 ms | KUI |
+| fp32 merged | **4** | 933 ms | 23.9 ms | KUI |
+| fp32 merged | 6 | 1291 ms | 33.1 ms | KUI |
+| fp32 merged | 8 | 920 ms | 23.6 ms | KUI |
+| int8 (150 MB) | 4 | 995 ms | 25.5 ms | KUI |
+| int8 | 8 | 913 ms | 23.4 ms | KUI |
+| q4 (222 MB) | 4 | 803 ms | 20.6 ms | **Kuii** |
+
+Nothing here moves it. More threads do not help (6 is worse, which looks
+like the cluster boundary again, milder than ggml's). int8 does not help,
+so the decoder is not streaming weights from memory; with a batch of one
+token the matmuls are GEMVs and ORT's ARM64 kernels get no more out of them.
+q4 is 14% faster and mis-hears the one word the prompt exists to fix, so
+it is not worth the quality risk for a 130 ms gain; it may be worth it once
+the prompt is on (not measured). The per-token floor on this CPU is about
+20 ms for `small.en` and 9 ms for `base.en`.
+
 ## What is still open
 
-- **Decoder on the NPU.** Left on the CPU here. It is 10-26 ms/token, so most
-  of the remaining time for `small.en`. Putting it on the HTP needs a static
-  maximum sequence length with an attention mask, which is a different export,
-  not a session option.
+- **Decoder on the NPU.** Left on the CPU here, at its floor (above). Putting
+  it on the HTP needs a static maximum sequence length with an attention
+  mask, which is a different export, not a session option. That is the one
+  remaining lever for `small.en`, and it is a project: an Optimum-style
+  export with fixed-size KV cache buffers, then the same QNN compile and
+  context cache as the encoder.
 - **Turbo.** Parked, see above. If revisited: the int8 export (645 MB) may
   compile where fp16 did not, but the speed ceiling stays below `small.en`.
 - **Nothing that blocks shipping.** Bundling and the prompt are done (see
