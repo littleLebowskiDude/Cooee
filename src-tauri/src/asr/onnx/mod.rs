@@ -30,13 +30,35 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokenizer::Tokenizer;
 
-/// Whisper's decoder context is 448 positions; the prompt takes two.
-const MAX_TOKENS: usize = 446;
+/// Whisper's decoder context is 448 positions, shared by the prompt and
+/// the output.
+const N_CTX: usize = 448;
+/// The most prompt tokens whisper keeps: half the context, less one.
+const MAX_PROMPT_TOKENS: usize = N_CTX / 2 - 1;
 
 /// Token ids that start every decode, and the one that ends it.
 pub struct Generation {
     pub sot_ids: Vec<u32>,
     pub eot: u32,
+    /// `<|startofprev|>`, which introduces prompt text. Absent from some
+    /// exports' `added_tokens.json`; then prompting is off.
+    pub start_of_prev: Option<u32>,
+}
+
+impl Generation {
+    /// The full start sequence for a decode: the prompt (if any) after
+    /// `<|startofprev|>`, then the usual start tokens. Whisper keeps only
+    /// the last `MAX_PROMPT_TOKENS` of a long prompt.
+    pub fn prefix(&self, prompt: &[u32]) -> Vec<u32> {
+        let mut ids = Vec::with_capacity(prompt.len() + self.sot_ids.len() + 1);
+        if let (Some(prev), false) = (self.start_of_prev, prompt.is_empty()) {
+            ids.push(prev);
+            let keep = prompt.len().saturating_sub(MAX_PROMPT_TOKENS);
+            ids.extend_from_slice(&prompt[keep..]);
+        }
+        ids.extend_from_slice(&self.sot_ids);
+        ids
+    }
 }
 
 /// What `config.json` and `generation_config.json` say about the export.
@@ -61,10 +83,14 @@ pub fn read_model_info(dir: &Path) -> Result<ModelInfo> {
     if let Some(forced) = gen["forced_decoder_ids"].as_array() {
         sot_ids.extend(forced.iter().filter_map(|p| p[1].as_u64()).map(|t| t as u32));
     }
+    let start_of_prev = read("added_tokens.json")
+        .ok()
+        .and_then(|added| added["<|startofprev|>"].as_u64())
+        .map(|t| t as u32);
     Ok(ModelInfo {
         n_mels: cfg["num_mel_bins"].as_u64().unwrap_or(80) as usize,
         d_model: cfg["d_model"].as_u64().context("d_model")? as usize,
-        generation: Generation { sot_ids, eot },
+        generation: Generation { sot_ids, eot, start_of_prev },
     })
 }
 
@@ -190,12 +216,13 @@ fn tensor_dims(ty: &ValueType) -> Vec<i64> {
 /// Greedy decoding through the Optimum merged decoder: the no-cache branch
 /// on the first step, the cache branch after. The cache branch hands the
 /// encoder K/V back as empty batch-0 tensors, so those are kept from the
-/// first step. Returns every token including the start sequence.
+/// first step. `prefix` is the start sequence (see [`Generation::prefix`]);
+/// the result includes it, so callers decode `ids[prefix.len()..]`.
 pub fn greedy_decode(
     dec: &mut Session,
     enc_out: &Tensor<f32>,
-    gen: &Generation,
-    max_tokens: usize,
+    prefix: &[u32],
+    eot: u32,
 ) -> Result<Vec<u32>> {
     let past_names: Vec<String> = dec
         .inputs()
@@ -220,9 +247,9 @@ pub fn greedy_decode(
         .map(|_| Tensor::<f32>::from_array(([1, heads, 0, head_dim], Vec::new())).map(|t| t.into_dyn()))
         .collect::<ort::Result<_>>()?;
 
-    let mut tokens = gen.sot_ids.clone();
+    let mut tokens = prefix.to_vec();
     let mut use_cache = false;
-    while tokens.len() < max_tokens {
+    while tokens.len() < N_CTX {
         let ids: Vec<i64> = if use_cache {
             vec![*tokens.last().unwrap() as i64]
         } else {
@@ -246,7 +273,7 @@ pub fn greedy_decode(
             .enumerate()
             .max_by(|a, b| a.1.total_cmp(b.1))
             .map(|(i, _)| i as u32)
-            .unwrap_or(gen.eot);
+            .unwrap_or(eot);
 
         let mut fresh = Vec::with_capacity(past_names.len());
         for name in &past_names {
@@ -266,14 +293,14 @@ pub fn greedy_decode(
         use_cache = true;
 
         tokens.push(next);
-        if next == gen.eot {
+        if next == eot {
             break;
         }
-        if let Some(period) = repeating(&tokens) {
+        if let Some(period) = repeating(&tokens[prefix.len()..]) {
             // Greedy whisper can lock into a loop on noise. Keep one copy.
             tracing::debug!(period, "decoder looping; stopping");
             tokens.truncate(tokens.len() - 2 * period);
-            tokens.push(gen.eot);
+            tokens.push(eot);
             break;
         }
     }
@@ -355,7 +382,7 @@ impl OnnxEngine {
     }
 
     /// Log-mel, encoder, decoder for one 30 s window.
-    fn transcribe_window(&self, pcm: &[f32]) -> Result<String> {
+    fn transcribe_window(&self, pcm: &[f32], prefix: &[u32]) -> Result<String> {
         let t = Instant::now();
         let feats = self.mel.compute(pcm);
         let mel_ms = t.elapsed().as_millis();
@@ -371,11 +398,11 @@ impl OnnxEngine {
         let enc_ms = t.elapsed().as_millis();
 
         let t = Instant::now();
-        let ids = greedy_decode(&mut self.decoder.lock(), &hidden, &self.generation, MAX_TOKENS)?;
+        let ids = greedy_decode(&mut self.decoder.lock(), &hidden, prefix, self.generation.eot)?;
         let dec_ms = t.elapsed().as_millis();
-        let n = ids.len().saturating_sub(self.generation.sot_ids.len());
+        let n = ids.len().saturating_sub(prefix.len());
         tracing::debug!(mel_ms, enc_ms, dec_ms, tokens = n, "onnx window");
-        Ok(self.tokenizer.decode(&ids, self.generation.eot))
+        Ok(self.tokenizer.decode(&ids[prefix.len()..], self.generation.eot))
     }
 }
 
@@ -386,14 +413,23 @@ impl AsrEngine for OnnxEngine {
 
     fn transcribe(&self, pcm: &[f32], prompt: Option<&str>) -> Result<Transcript> {
         let started = Instant::now();
-        if prompt.is_some() {
-            // Needs BPE encoding, which this tokenizer does not have yet. The
-            // dictionary's replacements still run on the output.
-            tracing::debug!("initial prompt not supported by the onnx engine; ignored");
-        }
+        // Whisper decodes as if the prompt preceded the audio; like
+        // whisper.cpp, the text gets a leading space. Without merges.txt
+        // there is no encoder, and the dictionary's replacements still run.
+        let prompt_ids = match prompt.map(str::trim).filter(|p| !p.is_empty()) {
+            Some(p) if self.generation.start_of_prev.is_some() => match self.tokenizer.encode(&format!(" {p}")) {
+                Some(ids) => ids,
+                None => {
+                    tracing::debug!("no merges.txt beside the model; prompt ignored");
+                    Vec::new()
+                }
+            },
+            _ => Vec::new(),
+        };
+        let prefix = self.generation.prefix(&prompt_ids);
         let mut text = String::new();
         for window in pcm.chunks(mel::CHUNK) {
-            let piece = self.transcribe_window(window)?;
+            let piece = self.transcribe_window(window, &prefix)?;
             let piece = piece.trim();
             if piece.is_empty() {
                 continue;
@@ -421,6 +457,19 @@ mod tests {
         assert_eq!(repeating(&[1, 2, 3, 1, 2, 3, 1, 2, 3]), Some(3));
         assert_eq!(repeating(&[1, 2, 3, 1, 2, 3]), None);
         assert_eq!(repeating(&[7, 1, 2, 1, 2, 1, 2]), Some(2));
+    }
+
+    #[test]
+    fn prefix_puts_the_prompt_after_start_of_prev_and_keeps_its_tail() {
+        let gen = Generation { sot_ids: vec![50257, 50362], eot: 50256, start_of_prev: Some(50360) };
+        assert_eq!(gen.prefix(&[]), vec![50257, 50362]);
+        assert_eq!(gen.prefix(&[1, 2]), vec![50360, 1, 2, 50257, 50362]);
+        let long: Vec<u32> = (0..300).collect();
+        let p = gen.prefix(&long);
+        assert_eq!(p.len(), 1 + MAX_PROMPT_TOKENS + 2);
+        assert_eq!(p[1], 300 - MAX_PROMPT_TOKENS as u32);
+        let no_prev = Generation { sot_ids: vec![50257], eot: 50256, start_of_prev: None };
+        assert_eq!(no_prev.prefix(&[1, 2]), vec![50257]);
     }
 
     #[test]

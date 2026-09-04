@@ -1,7 +1,7 @@
 # Whisper on the Hexagon NPU
 
-Status: **in the app behind the `onnx` feature; DLLs not yet bundled. Target
-model: `small.en`.** The encoder runs on the NPU through ONNX Runtime's QNN
+Status: **in the app behind the `onnx` feature, prompt and bundling
+included. Target model: `small.en`.** The encoder runs on the NPU through ONNX Runtime's QNN
 execution provider at 8-10x the CPU speed; `small.en` is a 1.2 s pipeline
 instead of 5.2 s. Reproduce with [`bench/npu_whisper.py`](../bench/npu_whisper.py)
 (Python) or `cargo run --release --features onnx --example ort_bench` (the
@@ -114,11 +114,8 @@ becomes affordable with the NPU, and it beats every CPU option measured.
   not a session option.
 - **Turbo.** Parked, see above. If revisited: the int8 export (645 MB) may
   compile where fp16 did not, but the speed ceiling stays below `small.en`.
-- **Bundling.** The engine looks for `onnxruntime.dll` and
-  `onnxruntime_providers_qnn.dll` beside the executable first, then at
-  `ORT_DYLIB_PATH` / `QNN_EP_PATH`, then in the pip packages. Only the last
-  exists on the dev machine today. See Plumbing, below.
-- **The dictionary prompt.** Needs BPE encoding; the tokenizer only decodes.
+- **Nothing that blocks shipping.** Bundling and the prompt are done (see
+  the plan's steps 5 and 6). What is left is performance work, above.
 
 ## Rust reproduction
 
@@ -162,8 +159,8 @@ Transcripts are identical to the Python run ("Coo E" for `base.en`, "KUI" for
 
 ## Implementation plan
 
-Research done 2026-09-04; the engine landed the same day. Steps 1-4 below
-are done; bundling (step 5) is not.
+Research done 2026-09-04; the engine, the prompt and the bundling landed
+the same day. Every step below is done.
 
 ### The crate
 
@@ -209,9 +206,12 @@ creation, so nothing needs to be pre-fixed.
 4. **Tokenizer decode** from `vocab.json` + `added_tokens.json`: GPT-2
    byte-level BPE, decode only. `generation_config.json` gives
    `decoder_start_token_id`, `eos_token_id`, `forced_decoder_ids`.
-5. **Prompting.** whisper.cpp takes the dictionary prompt as text; this
-   engine would need BPE *encoding* to do the same. Skipped in v1 — the
-   dictionary's post-hoc replacement still runs — and noted in the README.
+5. **Prompting.** `<|startofprev|>` + BPE-encoded `" " + prompt` (the last
+   223 tokens of it) + the usual start tokens, as whisper.cpp does. The
+   encoder is GPT-2's: a hand-written pre-tokenizer (the `regex` crate has
+   no lookahead) and merges from `merges.txt`, tested against the model's
+   own token ids and openai's `encoder.py`. Prompted with "Claude, Cooee.",
+   `base.en` stops hearing "Coo E" and `small.en` stops hearing "KUI".
 6. **Greedy loops.** Whisper can lock into a short repeating cycle on noise.
    The loop stops when a cycle of up to 8 tokens repeats three times and
    keeps one copy; the hard cap is the decoder's 448-position context.
@@ -224,12 +224,23 @@ creation, so nothing needs to be pre-fixed.
 - Model directory layout is the Hugging Face export as downloaded:
   `onnx/encoder_model.onnx`, `onnx/decoder_model_merged.onnx`, and the four
   json files. `small.en` is 970 MB; `base.en` 290 MB as the small option.
-- **DLLs beside the exe**: `onnxruntime.dll`; from the `onnxruntime_qnn`
-  package `onnxruntime_providers_qnn.dll`, `QnnHtp.dll`, `QnnHtpPrepare.dll`,
-  `QnnHtpV73Stub.dll`, `QnnSystem.dll`, `libQnnHtpV73Skel.so`,
-  `libqnnhtpv73.cat` (V73 is the X Elite's HTP generation). For dev, point
-  at the pip site-packages copies. Before bundling, read
-  `Qualcomm_LICENSE.pdf` in that package for redistribution terms.
+- **DLLs beside the exe**: `tools/collect-onnx-runtime.ps1` copies the set
+  from the pip packages into `src-tauri/runtime/` (gitignored):
+  `onnxruntime.dll`, `onnxruntime_providers_shared.dll`,
+  `onnxruntime_providers_qnn.dll`, `QnnSystem.dll`, `QnnHtp.dll`,
+  `QnnHtpPrepare.dll` (86 MB, the compiler), the V73 and V81 stub, skel and
+  cat files (V73 is the X Elite's HTP generation), and the licence files.
+  134 MB. `tauri.onnx.conf.json` adds `runtime/*` as bundle resources; both
+  the MSI and the NSIS installer keep the relative path, so they land in
+  `runtime\` under the install directory (checked in the MSI's directory
+  table). The engine looks there first, then beside the exe, then at
+  `ORT_DYLIB_PATH` / `QNN_EP_PATH`, then in site-packages. Verified: the
+  bench exe with only those 15 files in a `runtime\` folder beside it finds
+  the NPU and runs at the same speed. The bundles are 55 MB (MSI) and 38 MB
+  (NSIS) with the DLLs in; NSIS spends several minutes compressing them. `Qualcomm_LICENSE.pdf` (AI Stack
+  licence) allows distribution "solely in object code format and as
+  incorporated in Your software application", not standalone, and forbids
+  reverse engineering and removing notices.
 
 ### Order
 
@@ -244,8 +255,10 @@ creation, so nothing needs to be pre-fixed.
    and recompiled. `base.en` loads in 1.8 s from the cache, 8 s without.
 4. ~~Settings folder picker and engine name in the header~~: **Folder...**
    beside **File...**; the header reads `ONNX Runtime (NPU)` or `(CPU)`.
-5. Bundling the DLLs; Defender will have opinions about a new unsigned
-   binary loading Qualcomm DLLs, see README.
+5. ~~Bundling the DLLs~~: the collector script and the second bundle
+   config, above. Defender's opinion of the new unsigned binary is still to
+   be seen, see README.
+6. ~~The dictionary prompt~~: BPE encoder, above.
 
 ## Reproduce
 

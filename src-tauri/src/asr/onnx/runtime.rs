@@ -1,9 +1,10 @@
 //! Process-wide ONNX Runtime setup: load `onnxruntime.dll`, register the QNN
 //! plugin EP, find the NPU. Done once; every engine and the bench share it.
 //!
-//! The DLLs are looked for beside the executable first (the shipped layout),
-//! then at `ORT_DYLIB_PATH` / `QNN_EP_PATH`, then in the pip packages'
-//! site-packages (the dev-machine layout, see docs/NPU.md).
+//! The DLLs are looked for in `runtime\` beside the executable first (the
+//! installed layout), then beside it, then at `ORT_DYLIB_PATH` /
+//! `QNN_EP_PATH`, then in the pip packages' site-packages (the dev-machine
+//! layout, see docs/NPU.md).
 
 use anyhow::{anyhow, Context, Result};
 use once_cell::sync::OnceCell;
@@ -86,10 +87,13 @@ pub fn npu_devices(env: &Environment) -> impl Iterator<Item = Device<'_>> + '_ {
 }
 
 fn locate(var: &str, beside_exe: &str, site_rel: &[&str]) -> Option<PathBuf> {
+    // The installers put bundle resources under `runtime\` in the install
+    // directory (tauri.onnx.conf.json); a bare copy beside the exe also works.
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) {
-        let p = dir.join(beside_exe);
-        if p.exists() {
-            return Some(p);
+        for p in [dir.join("runtime").join(beside_exe), dir.join(beside_exe)] {
+            if p.exists() {
+                return Some(p);
+            }
         }
     }
     if let Some(v) = std::env::var_os(var) {

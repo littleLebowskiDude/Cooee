@@ -127,8 +127,8 @@ python -m pip install onnxruntime-qnn
 
 # Model: the export as downloaded. 290 MB for base.en, 970 MB for small.en.
 # onnx/encoder_model.onnx, onnx/decoder_model_merged.onnx, config.json,
-# generation_config.json, vocab.json -> models/whisper-small.en-onnx/
-# from huggingface.co/onnx-community/whisper-small.en
+# generation_config.json, added_tokens.json, vocab.json, merges.txt
+# -> models/whisper-small.en-onnx/ from huggingface.co/onnx-community/whisper-small.en
 
 npm run tauri dev -- --features onnx
 ```
@@ -140,9 +140,23 @@ and caches the result under `%LOCALAPPDATA%\cooee\qnn`; later loads take
 under two seconds. Without an NPU the encoder runs on ONNX Runtime's CPU
 kernels, which are still 2x faster than whisper.cpp here.
 
-Not yet: the dictionary prompt (this engine has no BPE encoder; the
-dictionary's replacements still apply), and shipping the DLLs in the
-installer.
+The dictionary prompt works as it does with whisper.cpp (`merges.txt` is what
+makes that possible; without it the engine runs unprompted and the
+dictionary's replacements still apply).
+
+To ship the DLLs, collect them from the pip package and bundle with the
+second config, which adds them as resources; the installers put them in
+`runtime\` under the install directory, where the engine looks first:
+
+```powershell
+.\tools\collect-onnx-runtime.ps1     # 15 files, 134 MB -> src-tauri/runtime/
+npm run tauri build -- --features onnx --config src-tauri/tauri.onnx.conf.json
+```
+
+The Qualcomm files are under Qualcomm's AI Stack licence, which allows
+redistribution in object form as part of an application and not on their
+own; the licence and notices are bundled alongside. The default build has no
+resources entry because a resource glob that matches nothing fails the build.
 
 ### Building whisper.cpp on Windows ARM64
 
@@ -334,11 +348,9 @@ node tools/make-icon.cjs src-tauri/icons
 ## Not yet built
 
 - LLM polish pass and Command Mode ("make this more formal")
-- Shipping the NPU engine: the ONNX Runtime and Qualcomm QNN DLLs are found
-  in the pip packages today, not bundled in the installer (licence check
-  first). The dictionary prompt for that engine needs a BPE encoder.
-  `large-v3-turbo` on the NPU is parked: its encoder did not finish compiling
-  in an hour. See [docs/NPU.md](docs/NPU.md).
+- `large-v3-turbo` on the NPU: parked, its encoder did not finish compiling
+  in an hour. The decoder on the NPU needs a static-length export. See
+  [docs/NPU.md](docs/NPU.md).
 - Per-app injection profiles
 
 ## Tried and removed

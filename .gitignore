@@ -23,4 +23,6 @@ src-tauri/gen/schemas/
 
 # ONNX exports for the NPU bench (docs/NPU.md); fetched from Hugging Face
 models/*-onnx/
+# ONNX Runtime + QNN DLLs bundled beside the exe; tools/collect-onnx-runtime.ps1
+src-tauri/runtime/
 __pycache__/

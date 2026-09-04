@@ -176,9 +176,10 @@ fn main() -> Result<()> {
     for (label, enc) in [("CPU encoder", &reference), ("NPU encoder", &npu_out)] {
         let enc_value = Tensor::from_array((enc_shape, enc.clone()))?;
         let t = Instant::now();
-        let ids = onnx::greedy_decode(&mut dec, &enc_value, &info.generation, 446)?;
+        let prefix = info.generation.prefix(&[]);
+        let ids = onnx::greedy_decode(&mut dec, &enc_value, &prefix, info.generation.eot)?;
         let ms = t.elapsed().as_secs_f64() * 1000.0;
-        let n = ids.len() - info.generation.sot_ids.len();
+        let n = ids.len() - prefix.len();
         println!(
             "decode from {label}: {n} tokens in {ms:.0} ms ({:.1} ms/token)",
             ms / n.max(1) as f64
@@ -198,6 +199,10 @@ fn main() -> Result<()> {
 engine {}: load {:.0} ms", engine.name(), t.elapsed().as_secs_f64() * 1000.0);
     let out = engine.transcribe(&pcm, None)?;
     println!("engine transcribe: {} ms
+  -> {}", out.inference_ms, out.text);
+    // The dictionary prompt, as the pipeline sends it.
+    let out = engine.transcribe(&pcm, Some("Claude, Cooee."))?;
+    println!("engine transcribe, prompt \"Claude, Cooee.\": {} ms
   -> {}", out.inference_ms, out.text);
     Ok(())
 }
