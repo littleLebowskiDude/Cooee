@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub mod mock;
+#[cfg(feature = "onnx")]
+pub mod onnx;
 #[cfg(feature = "whisper")]
 pub mod whisper_cpp;
 
@@ -70,6 +72,9 @@ pub enum EngineState {
 /// Builds an engine for the given model. No model means the mock engine, by
 /// design; a model that cannot be loaded is an error the UI should show,
 /// not something to paper over with mock output.
+///
+/// A directory is an ONNX export (encoder on the NPU); a file is a
+/// whisper.cpp GGML model.
 pub fn build_engine(
     model_path: Option<&Path>,
     threads: Option<usize>,
@@ -78,6 +83,22 @@ pub fn build_engine(
         tracing::warn!("no model file configured; using mock engine");
         return Ok(Box::new(mock::MockEngine));
     };
+
+    if path.is_dir() {
+        #[cfg(feature = "onnx")]
+        {
+            let engine = onnx::OnnxEngine::load(path, threads).map_err(|e| format!("{e:#}"))?;
+            tracing::info!(model = %path.display(), engine = engine.name(), "loaded onnx engine");
+            return Ok(Box::new(engine));
+        }
+        #[cfg(not(feature = "onnx"))]
+        {
+            return Err(format!(
+                "this build has no ONNX engine (built without the `onnx` feature), so the model folder {} cannot be used",
+                path.display()
+            ));
+        }
+    }
 
     #[cfg(feature = "whisper")]
     {

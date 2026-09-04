@@ -170,6 +170,37 @@ async fn pick_model(
         .map_err(|e| e.to_string())
 }
 
+/// Native folder picker for an ONNX export (encoder on the NPU); see
+/// docs/NPU.md for the layout. Async for the same reason as `pick_model`.
+#[tauri::command]
+async fn pick_model_dir(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<PathBuf>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let mut dialog = window
+        .dialog()
+        .file()
+        .set_title("Choose a whisper ONNX model folder")
+        .set_parent(&window);
+    let start_in = state
+        .config
+        .read()
+        .model_path
+        .as_ref()
+        .and_then(|p| p.parent().map(PathBuf::from));
+    if let Some(dir) = start_in {
+        dialog = dialog.set_directory(dir);
+    }
+
+    dialog
+        .blocking_pick_folder()
+        .map(|f| f.into_path())
+        .transpose()
+        .map_err(|e| e.to_string())
+}
+
 /// Lets the settings UI verify injection without speaking.
 #[tauri::command]
 fn test_injection(text: String, state: tauri::State<AppState>) -> Result<(), String> {
@@ -216,6 +247,7 @@ pub fn run() {
             set_config,
             engine_info,
             pick_model,
+            pick_model_dir,
             test_injection
         ])
         .setup(move |app| {

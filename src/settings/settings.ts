@@ -70,6 +70,14 @@ $("pick").onclick = async () => {
   }
 };
 
+$("pick-dir").onclick = async () => {
+  const picked = await invoke<string | null>("pick_model_dir");
+  if (picked) {
+    config.model_path = picked;
+    render();
+  }
+};
+
 $("clear").onclick = () => {
   config.model_path = null;
   render();

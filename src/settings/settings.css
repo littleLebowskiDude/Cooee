@@ -14,7 +14,7 @@ header { margin-bottom: 32px; }
 .engine[data-state="failed"] { color: var(--error); }
 .engine[data-state="ready"] { color: var(--injecting); }
 
-.model-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: start; }
+.model-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; align-items: start; }
 .model-row button { margin-top: 6px; }
 code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
 

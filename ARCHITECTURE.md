@@ -12,7 +12,7 @@ Transcription: **fully local**, no network required.
 | Shell / UI | **Tauri v2** | ~10 MB binary vs Electron's ~150 MB, and the process is idle-cheap for an always-resident tray app. The overlay HUD is HTML/CSS, so the branding work is cheap to iterate. |
 | Win32 bindings | **`windows` crate** | Microsoft's own generated bindings. Full ARM64 support. |
 | Audio | **`cpal`** | WASAPI backend, shared mode, low latency. |
-| ASR | **whisper.cpp** via `whisper-rs` | Compiles to ARM64 NEON. Behind a Cargo feature so the app builds and runs without it. |
+| ASR | **whisper.cpp** via `whisper-rs`, or **ONNX Runtime** via `ort` with the encoder on the Hexagon NPU | Both behind Cargo features so the app builds and runs without either. The NPU is the only compute on the chip that ggml's thread-pool problem does not touch; see Model choice. |
 | Text out | **`SendInput` + clipboard fallback** | Two strategies; see Injection. |
 
 ### Why not the alternatives
@@ -52,7 +52,8 @@ Every transition emits an event to the overlay HUD so the pill can animate.
 | `audio.rs` | `cpal` WASAPI capture → resample to 16 kHz mono f32 → lock-free ring buffer. The callback also publishes the chunk's RMS through an atomic, which a meter thread in `pipeline.rs` samples at 20 Hz for the HUD bars. |
 | `vad.rs` | Energy gate + hangover to trim leading/trailing silence before ASR. |
 | `asr/mod.rs` | `AsrEngine` trait. One seam, two implementations. Also `EngineSlot`, the swappable handle the pipeline reads from: models load on a background thread (startup and on change in settings) and swap in when ready, so the tray never waits on a load and a failed load keeps the previous engine. |
-| `asr/whisper_cpp.rs` | Real engine. Feature-gated on `whisper`. |
+| `asr/whisper_cpp.rs` | whisper.cpp engine. Feature-gated on `whisper`. |
+| `asr/onnx/` | ONNX Runtime engine, feature-gated on `onnx`: `mel.rs` (log-mel front end), `tokenizer.rs` (byte-level BPE decode), `runtime.rs` (loads `onnxruntime.dll` and the QNN plugin once per process), `mod.rs` (encoder on the NPU with a cached compiled context, merged decoder on the CPU, greedy loop). A model *directory* selects it. |
 | `asr/mock.rs` | Returns canned text. Lets the *whole* pipeline run before the C++ toolchain works. |
 | `polish.rs` | Raw transcript → clean text. Filler removal, dictionary, capitalisation. The dictionary's targets also go to the engine as whisper's initial prompt, so most corrections never need to fire. |
 | `inject.rs` | Text → focused window. |

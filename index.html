@@ -16,16 +16,19 @@
       <section>
         <h2>Model</h2>
         <label>
-          whisper.cpp model
+          Whisper model
           <div class="model-row">
             <input id="model" type="text" readonly placeholder="None — mock engine, no transcription" />
-            <button id="pick">Choose…</button>
+            <button id="pick">File…</button>
+            <button id="pick-dir">Folder…</button>
             <button id="clear">Clear</button>
           </div>
         </label>
         <p class="hint">
-          A GGML file such as <code>ggml-base.en.bin</code> (141 MB, English, fast) from
-          huggingface.co/ggerganov/whisper.cpp. Loads in the background when you save.
+          A file is a whisper.cpp GGML model such as <code>ggml-base.en.bin</code> (141 MB) from
+          huggingface.co/ggerganov/whisper.cpp, run on the CPU. A folder is an ONNX export such as
+          onnx-community/whisper-small.en, run with the encoder on the NPU. Loads in the background
+          when you save.
         </p>
         <label>
           Inference threads

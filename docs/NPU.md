@@ -1,9 +1,11 @@
 # Whisper on the Hexagon NPU
 
-Status: **feasible, measured, not yet in the app. Target model: `small.en`.**
-The encoder runs on the NPU through ONNX Runtime's QNN execution provider at
-8-10x the CPU speed; `small.en` becomes a ~1.3 s pipeline instead of 5.2 s.
-Reproduce with [`bench/npu_whisper.py`](../bench/npu_whisper.py).
+Status: **in the app behind the `onnx` feature; DLLs not yet bundled. Target
+model: `small.en`.** The encoder runs on the NPU through ONNX Runtime's QNN
+execution provider at 8-10x the CPU speed; `small.en` is a 1.2 s pipeline
+instead of 5.2 s. Reproduce with [`bench/npu_whisper.py`](../bench/npu_whisper.py)
+(Python) or `cargo run --release --features onnx --example ort_bench` (the
+engine's own code).
 
 ## Why this matters
 
@@ -112,12 +114,11 @@ becomes affordable with the NPU, and it beats every CPU option measured.
   not a session option.
 - **Turbo.** Parked, see above. If revisited: the int8 export (645 MB) may
   compile where fp16 did not, but the speed ceiling stays below `small.en`.
-- **The Rust side.** The app uses whisper.cpp through `whisper-rs`. This path
-  needs a third `AsrEngine` on ONNX Runtime — the `ort` crate with dynamic
-  loading of Microsoft's `onnxruntime.dll`, plus the QNN plugin registered
-  through the C API — and the mel front end in Rust. Ship the ORT and QNN
-  DLLs beside the binary.
-- **Context cache**, as above, before this goes near the tray app.
+- **Bundling.** The engine looks for `onnxruntime.dll` and
+  `onnxruntime_providers_qnn.dll` beside the executable first, then at
+  `ORT_DYLIB_PATH` / `QNN_EP_PATH`, then in the pip packages. Only the last
+  exists on the dev machine today. See Plumbing, below.
+- **The dictionary prompt.** Needs BPE encoding; the tokenizer only decodes.
 
 ## Rust reproduction
 
@@ -127,7 +128,8 @@ clip, 2026-09-04:
 
 ```powershell
 cargo build --release --features onnx --example ort_bench
-.\src-tauri	argetelease\examples\ort_bench.exe models\whisper-small.en-onnx models\sample.wav
+.\src-tauri	arget
+elease\examples\ort_bench.exe models\whisper-small.en-onnx models\sample.wav
 ```
 
 | Stage | `base.en` Python | `base.en` Rust | `small.en` Python | `small.en` Rust |
@@ -160,8 +162,8 @@ Transcripts are identical to the Python run ("Coo E" for `base.en`, "KUI" for
 
 ## Implementation plan
 
-Research done 2026-09-04. Step 1 (the Rust bench) and the context cache part
-of step 3 are done, above; the rest is not built yet.
+Research done 2026-09-04; the engine landed the same day. Steps 1-4 below
+are done; bundling (step 5) is not.
 
 ### The crate
 
@@ -208,8 +210,11 @@ creation, so nothing needs to be pre-fixed.
    byte-level BPE, decode only. `generation_config.json` gives
    `decoder_start_token_id`, `eos_token_id`, `forced_decoder_ids`.
 5. **Prompting.** whisper.cpp takes the dictionary prompt as text; this
-   engine would need BPE *encoding* to do the same. Skip in v1 — the
-   dictionary's post-hoc replacement still runs — and note it in settings.
+   engine would need BPE *encoding* to do the same. Skipped in v1 — the
+   dictionary's post-hoc replacement still runs — and noted in the README.
+6. **Greedy loops.** Whisper can lock into a short repeating cycle on noise.
+   The loop stops when a cycle of up to 8 tokens repeats three times and
+   keeps one copy; the hard cap is the decoder's 448-position context.
 
 ### Plumbing
 
@@ -229,11 +234,16 @@ creation, so nothing needs to be pre-fixed.
 ### Order
 
 1. ~~`--example ort_bench`~~: done, matches (Rust reproduction, above).
-2. Engine behind `AsrEngine` + config branch + `cargo test` for mel and the
-   tokenizer against fixtures dumped from the Python script.
-3. ~~Context cache~~: mechanism verified in the bench (640 ms reload); the
-   engine needs to place the file under app data, keyed by model.
-4. Settings folder picker and engine name in the header.
+2. ~~Engine behind `AsrEngine` + config branch + tests~~: `src/asr/onnx/`.
+   The mel test checks against `fixtures/mel_two_tones_100.f32`, written by
+   `bench/mel_fixture.py` from the numpy reference; the tokenizer test
+   decodes the sample's ids against the real vocabulary when the export is
+   present.
+3. ~~Context cache~~: `%LOCALAPPDATA%\cooee\qnn\<model dir>-<encoder
+   size>.onnx` plus its `_qnn.bin`. A context that fails to load is deleted
+   and recompiled. `base.en` loads in 1.8 s from the cache, 8 s without.
+4. ~~Settings folder picker and engine name in the header~~: **Folder...**
+   beside **File...**; the header reads `ONNX Runtime (NPU)` or `(CPU)`.
 5. Bundling the DLLs; Defender will have opinions about a new unsigned
    binary loading Qualcomm DLLs, see README.
 

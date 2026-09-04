@@ -113,6 +113,37 @@ Choose it under **Settings → Model** (or set `model_path` in
 when ready; the settings header shows which engine and file are live. Until a
 model is chosen the mock engine is active and nothing is transcribed.
 
+### Whisper on the NPU (ONNX Runtime)
+
+The `onnx` feature adds a second engine: a Hugging Face ONNX export of
+whisper with the encoder on the Hexagon NPU through ONNX Runtime's QNN
+execution provider, the decoder on the CPU. `small.en` becomes affordable
+this way (see [Performance](#performance)). Measurements, the plan and the
+gotchas are in [docs/NPU.md](docs/NPU.md).
+
+```powershell
+# Runtime DLLs, for now from the pip packages (the engine finds them there)
+python -m pip install onnxruntime-qnn
+
+# Model: the export as downloaded. 290 MB for base.en, 970 MB for small.en.
+# onnx/encoder_model.onnx, onnx/decoder_model_merged.onnx, config.json,
+# generation_config.json, vocab.json -> models/whisper-small.en-onnx/
+# from huggingface.co/onnx-community/whisper-small.en
+
+npm run tauri dev -- --features onnx
+```
+
+Choose the model **folder** under **Settings > Model > Folder...**. A folder
+selects this engine, a `.bin` file selects whisper.cpp. The first load
+compiles the encoder for the NPU (7 s for `base.en`, 20 s for `small.en`)
+and caches the result under `%LOCALAPPDATA%\cooee\qnn`; later loads take
+under two seconds. Without an NPU the encoder runs on ONNX Runtime's CPU
+kernels, which are still 2x faster than whisper.cpp here.
+
+Not yet: the dictionary prompt (this engine has no BPE encoder; the
+dictionary's replacements still apply), and shipping the DLLs in the
+installer.
+
 ### Building whisper.cpp on Windows ARM64
 
 Handled for you by [`.cargo/config.toml`](.cargo/config.toml) — no shell setup,
@@ -162,6 +193,17 @@ Two findings, both against the plan in [ARCHITECTURE.md](ARCHITECTURE.md):
    is 2.4x slower than `base.en`. All three produced the same words on the
    sample; they differed only on how to spell "Cooee", which the dictionary
    prompt settles anyway.
+
+**On the NPU** the picture changes. The ONNX engine, same clip, machine idle,
+encoder on the Hexagon NPU and decoder on 4 CPU threads:
+
+| Model | whisper.cpp, 4 threads | ONNX engine, NPU encoder |
+|---|---|---|
+| `base.en` | 2.2 s | **0.42 s** |
+| `small.en` | 5.2 s | **1.2 s** |
+
+`small.en` on the NPU is faster than `base.en` on the CPU, and it is the
+model that hears "Cooee" as one word. Details in [docs/NPU.md](docs/NPU.md).
 
 Re-run the sweep after a toolchain or model change:
 
@@ -292,11 +334,11 @@ node tools/make-icon.cjs src-tauri/icons
 ## Not yet built
 
 - LLM polish pass and Command Mode ("make this more formal")
-- Hexagon NPU inference via ONNX Runtime QNN — **measured feasible**: the
-  `base.en` encoder runs 8x faster than the CPU and `small.en` 10x faster,
-  which makes `small.en` a ~1.3 s pipeline instead of 5.2 s, same transcript.
-  Turbo's encoder did not finish compiling for the NPU in an hour. Needs a
-  third `AsrEngine` on ONNX Runtime to ship. See [docs/NPU.md](docs/NPU.md).
+- Shipping the NPU engine: the ONNX Runtime and Qualcomm QNN DLLs are found
+  in the pip packages today, not bundled in the installer (licence check
+  first). The dictionary prompt for that engine needs a BPE encoder.
+  `large-v3-turbo` on the NPU is parked: its encoder did not finish compiling
+  in an hour. See [docs/NPU.md](docs/NPU.md).
 - Per-app injection profiles
 
 ## Tried and removed
