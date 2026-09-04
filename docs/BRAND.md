@@ -32,33 +32,46 @@ senses).
 A source point with arcs travelling outward, opening to the right.
 
 The arcs are **directional, not concentric**. Concentric rings read as a target;
-a cooee travels. They also **cool from ochre to terracotta** as they move out,
-and **taper at the tips** so each arc dissolves rather than stopping dead —
-sound attenuating with distance.
+a cooee travels. They **step through the ramp** as they move out, blue at the
+core to pink at the far arc, and **taper at the tips** so each arc dissolves
+rather than stopping dead — sound attenuating with distance.
 
-Regenerate at any size (no dependencies):
+Regenerate every size (no dependencies):
 
 ```bash
-node tools/make-icon.cjs src-tauri/icons/icon.png 512
+node tools/make-icon.cjs src-tauri/icons
 ```
 
 ## Palette
 
-Australian earth, on warm near-black. Defined once as custom properties in
-`src/theme.css`; nothing downstream hardcodes a hex value.
+Windows 11 dark neutrals, so the pill and the settings window sit beside
+Teams and Edge as if they shipped with them. The Copilot ramp — blue through
+violet to pink — is spent on **one moment only**: the listening bars, one stop
+per bar, so a voice lights it left to right. Everywhere else is flat.
+
+Defined once as custom properties in `src/theme.css`; nothing downstream
+hardcodes a hex value.
 
 | Token | Hex | Role |
 |---|---|---|
-| `--bg` | `#100d0a` | Warm near-black. Never a neutral grey — the warmth is the point. |
-| `--ochre` | `#e9a13b` | Primary. The call itself. Capture state. |
-| `--terracotta` | `#cf6a3f` | Secondary. Distance and attenuation. Transcribing state. |
-| `--eucalypt` | `#8aa87c` | Success. Text delivered. |
-| `--redearth` | `#a8442a` | Reserved for depth and accent. |
-| `--bone` | `#f4ece1` | Type. Warm off-white, never pure `#fff`. |
+| `--bg` | `#1c1c22` | Near-black with a touch of blue. Windows 11 dark, not pure black. |
+| `--text` | `#f5f5f7` | Type. Off-white, never pure `#fff`. |
+| `--muted` | `#9a9aa6` | Labels and hints. |
+| `--ramp-1` … `--ramp-5` | `#4cc2ff` `#7a7dff` `#a06cff` `#d16bd6` `#ff6bb5` | The Copilot ramp. Listening bars only. |
+| `--listening` | `#4cc2ff` | Capture state: the ring, the core, the accent. |
+| `--thinking` | `#7a7dff` | Transcribing. |
+| `--injecting` | `#6ccb5f` | Delivered. Fluent green. |
+| `--error` | `#ff7b7b` | Something failed. |
+| `--accent` / `--on-accent` | `#4cc2ff` / `#0b1a24` | Controls: the Save button, focus rings, checkboxes. |
 
-Two rules: **no pure black and no pure white** — every neutral carries warmth;
-and **state is colour, not text** — the overlay is legible at a glance without
-being read.
+Two rules: **no pure black and no pure white**; and **state is colour, not
+text** — the overlay is legible at a glance without being read. The ramp is
+the third rule: it appears in the listening bars and the icon, and nowhere
+else, so it keeps meaning.
+
+Earlier the identity was Australian earth — ochre and terracotta on warm
+near-black. It was retired in favour of a palette that reads as native on a
+work machine; the name and the mark carry the Australian thread on their own.
 
 ## Motion
 
@@ -72,9 +85,8 @@ The overlay pill animates only what is happening:
   jitter so one number still reads as a spectrum. Until the first level lands
   a CSS equaliser on five drifting durations stands in. The label says only
   "Listening" — no device name, which was long enough to be cut off.
-- **Transcribing** — the level bars pulse in sequence, ochre shifting to
-  terracotta.
-- **Injecting** — a single eucalypt flash. Brief; the work is done.
+- **Transcribing** — the level bars pulse in sequence, in the ramp's violet.
+- **Injecting** — a single green flash. Brief; the work is done.
 - **Idle** — nothing moves, and the overlay hides itself after 1.2 s.
 
 Animation runs *only* in the states that need it, so a resident idle overlay

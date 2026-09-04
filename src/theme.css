@@ -1,27 +1,36 @@
 /* Cooee — a call built to carry.
  *
- * Palette is Australian earth: ochre, terracotta, eucalypt, bone, on warm
- * near-black. Every colour is a token; nothing downstream hardcodes a hex. */
+ * Windows 11 dark neutrals, with the Copilot ramp spent on one moment only:
+ * listening. Every colour is a token; nothing downstream hardcodes a hex. */
 :root {
-  --bg: #100d0a;
-  --surface: rgba(30, 24, 19, 0.88);
-  --border: rgba(233, 161, 59, 0.14);
-  --text: #f4ece1;
-  --muted: #9b8b79;
+  --bg: #1c1c22;
+  --surface: rgba(38, 38, 46, 0.88);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f5f5f7;
+  --muted: #9a9aa6;
 
-  /* Earth accents */
-  --ochre: #e9a13b;
-  --terracotta: #cf6a3f;
-  --eucalypt: #8aa87c;
-  --redearth: #a8442a;
-  --bone: #f4ece1;
+  /* The Copilot ramp, blue through violet to pink. Painted across the
+     listening bars, one stop per bar, so a voice lights it left to right. */
+  --ramp-1: #4cc2ff;
+  --ramp-2: #7a7dff;
+  --ramp-3: #a06cff;
+  --ramp-4: #d16bd6;
+  --ramp-5: #ff6bb5;
 
-  /* Pipeline states */
-  --idle: #6b5c4c;
-  --listening: var(--ochre);
-  --thinking: var(--terracotta);
-  --injecting: var(--eucalypt);
-  --error: #d1453b;
+  /* Pipeline states. Flat everywhere except the bars. */
+  --idle: #5c5c68;
+  --listening: var(--ramp-1);
+  --thinking: var(--ramp-2);
+  --injecting: #6ccb5f;
+  --error: #ff7b7b;
+
+  /* Accent for controls: the ramp's blue, with dark text on it. */
+  --accent: var(--ramp-1);
+  --on-accent: #0b1a24;
+
+  /* Glows behind the pill. Kept as tokens so the ramp can change in one place. */
+  --glow-listening: rgba(76, 194, 255, 0.22);
+  --glow-error: rgba(255, 123, 123, 0.22);
 
   --radius: 14px;
   --font: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;

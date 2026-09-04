@@ -78,9 +78,15 @@ body {
   transition: height 90ms ease, background 160ms ease;
 }
 
-.pill[data-state="capturing"] .core,
-.pill[data-state="capturing"] .bars span { background: var(--listening); }
-.pill[data-state="capturing"] { box-shadow: 0 8px 30px rgba(233, 161, 59, 0.2); }
+.pill[data-state="capturing"] .core { background: var(--listening); }
+.pill[data-state="capturing"] { box-shadow: 0 8px 30px var(--glow-listening); }
+
+/* The one place the ramp appears: a voice lights it blue to pink, left to right. */
+.pill[data-state="capturing"] .bars span:nth-child(1) { background: var(--ramp-1); }
+.pill[data-state="capturing"] .bars span:nth-child(2) { background: var(--ramp-2); }
+.pill[data-state="capturing"] .bars span:nth-child(3) { background: var(--ramp-3); }
+.pill[data-state="capturing"] .bars span:nth-child(4) { background: var(--ramp-4); }
+.pill[data-state="capturing"] .bars span:nth-child(5) { background: var(--ramp-5); }
 
 /* Listening, before the first microphone level arrives (and as the fallback
    if none ever does): an equaliser on five different durations, so the phases
@@ -133,7 +139,7 @@ body {
 .pill[data-state="injecting"] .bars span { background: var(--injecting); }
 
 .pill[data-state="error"] .core { background: var(--error); }
-.pill[data-state="error"] { box-shadow: 0 8px 30px rgba(209, 69, 59, 0.2); }
+.pill[data-state="error"] { box-shadow: 0 8px 30px var(--glow-error); }
 
 @keyframes pulse {
   0%, 100% { height: 4px; }

@@ -36,14 +36,14 @@ input, select {
   font: inherit;
   font-size: 14px;
 }
-input:focus, select:focus { outline: 2px solid var(--thinking); outline-offset: 1px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
 
 #hotkey-custom { margin-top: 12px; }
 
 .check { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--text); cursor: pointer; }
-.check input { width: auto; margin: 0; accent-color: var(--listening); }
+.check input { width: auto; margin: 0; accent-color: var(--accent); }
 #hotkey-custom[hidden] { display: none; }
 
 button {
@@ -57,8 +57,8 @@ button {
   font-size: 13px;
   cursor: pointer;
 }
-button:hover { border-color: rgba(255, 255, 255, 0.2); }
-button.primary { background: var(--thinking); border-color: transparent; color: #06101f; font-weight: 600; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
 
 .dict-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: start; }
 .dict-add button { margin-top: 6px; }

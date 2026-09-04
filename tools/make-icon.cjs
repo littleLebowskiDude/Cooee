@@ -10,8 +10,9 @@ const SS = 3; // supersampling factor
 
 function render(S) {
 const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-const BG_TOP = hex("#1b1410"), BG_BOT = hex("#0d0a08");
-const OCHRE = hex("#e9a13b"), TERRA = hex("#cf6a3f");
+const BG_TOP = hex("#26262e"), BG_BOT = hex("#15151a");
+// Copilot ramp: the core is the blue, the arcs travel through violet to pink.
+const RAMP = [hex("#4cc2ff"), hex("#a06cff"), hex("#ff6bb5")];
 
 const M = S * 0.055, R = S * 0.235, lo = M, hi = S - M;
 const inSquircle = (x, y) => {
@@ -46,7 +47,7 @@ for (let y = 0; y < S; y++) {
 
         const d = Math.hypot(fx - CX, fy - CY);
         if (d <= CORE) {
-          [r, g, b] = OCHRE;
+          [r, g, b] = RAMP[0];
         } else {
           for (let k = 0; k < RINGS.length; k++) {
             const ring = RINGS[k];
@@ -55,11 +56,8 @@ for (let y = 0; y < S; y++) {
             if (Math.abs(ang) > APERTURE) break;
             // Taper toward the tips so each arc dissolves instead of stopping dead.
             const taper = Math.min(1, (APERTURE - Math.abs(ang)) / (APERTURE * 0.45));
-            // Arcs cool from ochre to terracotta as they travel.
-            const m = k / (RINGS.length - 1);
-            const cr = OCHRE[0] + (TERRA[0] - OCHRE[0]) * m;
-            const cg = OCHRE[1] + (TERRA[1] - OCHRE[1]) * m;
-            const cb = OCHRE[2] + (TERRA[2] - OCHRE[2]) * m;
+            // Each arc takes the next stop of the ramp as it travels.
+            const [cr, cg, cb] = RAMP[Math.min(k, RAMP.length - 1)];
             const A = ring.a * taper;
             r += (cr - r) * A; g += (cg - g) * A; b += (cb - b) * A;
             break;
