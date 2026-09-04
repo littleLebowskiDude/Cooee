@@ -199,7 +199,17 @@ failed. What actually worked:
   `rustup toolchain uninstall stable-aarch64-pc-windows-msvc` then reinstall.
 - Expect slow downloads: TLS inspection on the corporate network made a 2 KB
   file from `static.rust-lang.org` take 14 s. Builds are fine; fetches crawl.
-
+- **Defender for Endpoint flags the installed app.** The NSIS-installed
+  `cooee.exe` was quarantined as `Trojan:Win32/Bearfoos.A!ml` — the `!ml`
+  suffix is a machine-learning heuristic, not a signature. An unsigned binary
+  that installs a `WH_KEYBOARD_LL` hook, calls `SendInput`, touches the
+  clipboard, and arrives with Start Menu shortcuts and an uninstall key is
+  what a keylogger looks like to that model. The detection lists the install
+  context (shortcuts, uninstall key) as resources; the byte-identical
+  `src-tauri\target\release\cooee.exe` was left alone and runs fine from
+  there, which is the workaround on a machine with no admin for exclusions.
+  Report the false positive at https://www.microsoft.com/wdsi/filesubmission
+  with the file's SHA-256. Code signing is the real fix.
 ## Layout
 
 ```
