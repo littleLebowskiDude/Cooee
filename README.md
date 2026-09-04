@@ -25,9 +25,9 @@ account, no telemetry.
 | `tsc --noEmit` | clean |
 | `vite build` | clean |
 
-Measured on a Snapdragon X Elite: ~2.7 s for a short utterance with `base.en` at
-`asr_threads: 2` — and that was under 100% CPU load from other apps, so treat it
-as an upper bound. See [Performance](#performance).
+Measured on a Snapdragon X Elite: 2.2 s for 13.6 s of speech with `base.en` at
+4 threads on an idle machine, so ~6x realtime. Bigger models and more threads
+were both measured and both lose. See [Performance](#performance).
 
 The polish pass is rule-based by decision, not by omission: an LLM pass was built
 and benchmarked, then rejected. See
@@ -138,27 +138,36 @@ re-runs the *old* compiler and makes a correct fix look like it failed.
 
 ## Performance
 
-**Thread count matters more than model size.** Measured on a Snapdragon X Elite
-(12 cores), `base.en`, 3.4 s of speech, under normal corporate load (Teams, Edge,
-and a security agent already saturating the CPU):
+**Four threads, `base.en`.** Measured on a Snapdragon X Elite (12 cores) with
+everything closed, 13.6 s of TTS speech, three models, `asr_threads` swept:
 
-| `asr_threads` | Latency |
-|---|---|
-| 2 | **2.7 s** |
-| 4 | 7.2 s |
-| 8 | 42 s |
+| Model | Size | 2 threads | 4 threads | 8 threads | 12 threads |
+|---|---|---|---|---|---|
+| `base.en` | 141 MB | 3.4 s | **2.2 s** | 69 s | 379 s |
+| `small.en-q5_1` | 190 MB | 9.9 s | 5.2 s | | |
+| `large-v3-turbo-q5_0` | 574 MB | 46 s | 24 s | | |
 
-ggml's workers spin-wait, so oversubscribing a busy machine collapses throughput
-instead of improving it. The original default of `cores - 1` was ~15x slower than
-a small pool; the default is now capped at 4, and `asr_threads` in config
-overrides it. **Raise it only if your machine is genuinely idle.**
+Two findings, both against the plan in [ARCHITECTURE.md](ARCHITECTURE.md):
 
-Treat these as an upper bound on latency, not a hardware characteristic — the
-machine was at 100% CPU throughout. Re-run `--example bench` when idle:
+1. **More than 4 threads collapses, even on an idle machine.** 8 threads is 30x
+   slower than 4; 12 threads is 170x slower, and only kept ~6 cores busy while
+   it ran. ggml's workers spin-wait at barriers, and the X Elite's 12 cores are
+   three clusters of four — synchronising across clusters is where the time
+   goes. The default is capped at 4 and `asr_threads` overrides it, but there
+   is no idle-machine case where raising it helps. Under load (Teams, Edge, a
+   security agent), 2 threads beat 4 by a wide margin, so drop to 2 if the
+   machine is busy.
+2. **Bigger models are not worth it here.** `large-v3-turbo` runs slower than
+   realtime (a 10 s utterance would sit transcribing for ~18 s) and `small.en`
+   is 2.4x slower than `base.en`. All three produced the same words on the
+   sample; they differed only on how to spell "Cooee", which the dictionary
+   prompt settles anyway.
+
+Re-run the sweep after a toolchain or model change:
 
 ```powershell
 cargo run --release --features whisper --example bench -- `
-  models/ggml-base.en.bin models/sample.wav "2,4,8"
+  models/ggml-base.en.bin models/sample.wav "2,4"
 ```
 
 Generate a test sample with Windows TTS (real speech, not noise — whisper's
@@ -283,11 +292,24 @@ node tools/make-icon.cjs src-tauri/icons
 ## Not yet built
 
 - LLM polish pass and Command Mode ("make this more formal")
-- Hexagon NPU inference via ONNX Runtime QNN
+- Hexagon NPU inference via ONNX Runtime QNN — **measured feasible**: the
+  `base.en` encoder runs 8x faster than the CPU and `small.en` 10x faster,
+  which makes `small.en` a ~1.3 s pipeline instead of 5.2 s, same transcript.
+  Turbo's encoder did not finish compiling for the NPU in an hour. Needs a
+  third `AsrEngine` on ONNX Runtime to ship. See [docs/NPU.md](docs/NPU.md).
 - Per-app injection profiles
 
 ## Tried and removed
 
+- **Adreno GPU via ggml's Vulkan backend.** Built (whisper-rs `vulkan`
+  feature, Vulkan SDK 1.4.357 ARM64) and measured on the same 13.6 s sample:
+  **35 s** against 2.2 s on the CPU, plus a 15 s shader compile at first load.
+  Same words out, so the backend works; the Adreno X1-85 driver reports no
+  matrix cores and ggml's shaders are not tuned for it. Not worth a config
+  knob. To reproduce: `CXXFLAGS=/EHsc` (ggml-vulkan uses exceptions), link
+  with `lld-link` (MSVC `link.exe` fails with LNK1322, a Cortex-A53 erratum
+  workaround it cannot apply to ggml-vulkan's largest function), and add
+  `vulkan = ["whisper", "whisper-rs/vulkan"]` to the features.
 - **Streaming partial transcripts.** Built (a preview thread re-transcribing
   the audio so far, aborted via whisper's callback on release) and taken out
   the same day: the pill grew large and busy, and the text that matters is the

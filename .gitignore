@@ -20,3 +20,7 @@ bench/phi-results.json
 models/phi/
 models/*.wav
 src-tauri/gen/schemas/
+
+# ONNX exports for the NPU bench (docs/NPU.md); fetched from Hugging Face
+models/*-onnx/
+__pycache__/

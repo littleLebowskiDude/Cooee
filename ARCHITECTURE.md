@@ -88,24 +88,49 @@ Default: clipboard-paste for text over ~120 chars, `SendInput` below. Save and r
 
 Target: hotkey release → text on screen, for ~10 s of speech.
 
-| Stage | Budget |
-|---|---|
-| Capture stop + VAD trim | 10 ms |
-| whisper `large-v3-turbo` q5, 12 ARM cores | 600-1200 ms |
-| Polish pass (rule-based) | 5 ms |
-| Injection | 20 ms |
-| **Total** | **~0.7-1.3 s** |
+| Stage | Planned | Measured |
+|---|---|---|
+| Capture stop + VAD trim | 10 ms | |
+| whisper | `large-v3-turbo` q5, 12 cores: 600-1200 ms | `base.en`, 4 threads: ~1.6 s |
+| Polish pass (rule-based) | 5 ms | 3 µs |
+| Injection | 20 ms | |
+| **Total** | **~0.7-1.3 s** | **~1.6 s** |
 
-The polish pass is rule-based to start. An LLM pass is a much better product but needs either a network call (rejected: local-only) or a local small model — deferred until the core loop is solid.
+The plan assumed whisper would scale across all 12 cores. It does not — see
+Model choice. The measured figure is the idle-machine rate of 6.2x realtime
+applied to 10 s of speech; the README has the full sweep.
+
+The polish pass is rule-based by decision, not to start: an LLM pass was built, benchmarked and rejected for over-editing. See [docs/PHI-SILICA.md](docs/PHI-SILICA.md).
 
 ## Model choice
 
-`ggml-large-v3-turbo-q5_0.bin` (~570 MB) is the sweet spot: near-large accuracy, ~8x faster than large-v3, fits trivially in 64 GB. Fall back to `small.en-q5_1` (~180 MB) if ARM64 throughput disappoints.
+**`base.en`**, 4 threads. The plan was `ggml-large-v3-turbo-q5_0.bin` (~570 MB,
+near-large accuracy, ~8x faster than large-v3) with `small.en-q5_1` as the
+fallback. Measured on the X Elite with the machine idle, turbo runs slower than
+realtime (24 s for 13.6 s of speech at 4 threads) and `small.en` is 2.4x slower
+than `base.en`, for no difference in the words produced on the test sample.
+
+The reason the plan was wrong: ggml's thread pool spin-waits at barriers, and
+the X Elite's 12 cores are three clusters of four. Past 4 threads the
+cross-cluster synchronisation dominates — 8 threads is 30x slower than 4, 12
+threads is 170x slower. So the whole budget has to fit on one cluster, and on
+one cluster only `base.en` is fast enough. This is what makes the Hexagon NPU
+path (below) interesting: it is the only route to a bigger model without going
+through that thread pool. The Adreno GPU is not that route — ggml's Vulkan
+backend runs on it but 16x slower than the CPU (README, "Tried and removed").
+The NPU is: measured at 59 ms for the `base.en` encoder against 460 ms on the
+CPU, and 165 ms against 1.7 s for `small.en`, transcripts unchanged
+([docs/NPU.md](docs/NPU.md)). **The plan is now `small.en` on the NPU**
+through a third `AsrEngine` on ONNX Runtime; turbo's encoder would not
+compile for the NPU in over an hour and would be slower than `small.en` even
+if it did.
 
 ## Deferred
 
 - LLM polish pass, Command Mode ("make this more formal")
-- Hexagon NPU via ONNX QNN
+- Hexagon NPU via ONNX Runtime QNN — feasibility measured, see
+  [docs/NPU.md](docs/NPU.md): encoder 59 ms on the NPU vs 460 ms on the CPU,
+  and ORT's CPU decoder alone is faster than ggml. The third `AsrEngine`.
 - Per-app injection profiles
 
 Rejected, not deferred: streaming partial transcripts. Built and removed — the
