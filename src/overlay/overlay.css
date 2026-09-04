@@ -82,6 +82,41 @@ body {
 .pill[data-state="capturing"] .bars span { background: var(--listening); }
 .pill[data-state="capturing"] { box-shadow: 0 8px 30px rgba(233, 161, 59, 0.2); }
 
+/* Listening: an equaliser that is not wired to the microphone. Each bar runs
+   its own keyframes at its own prime-ish duration, so the phases drift and
+   the pattern never visibly repeats — enough to read as "hearing you" without
+   streaming levels from the audio thread to the webview. */
+.pill[data-state="capturing"] .bars span { animation: listen-a 640ms ease-in-out infinite; }
+.pill[data-state="capturing"] .bars span:nth-child(2) { animation: listen-b 530ms ease-in-out infinite; animation-delay: -210ms; }
+.pill[data-state="capturing"] .bars span:nth-child(3) { animation: listen-c 790ms ease-in-out infinite; animation-delay: -370ms; }
+.pill[data-state="capturing"] .bars span:nth-child(4) { animation: listen-b 610ms ease-in-out infinite; animation-delay: -120ms; }
+.pill[data-state="capturing"] .bars span:nth-child(5) { animation: listen-a 700ms ease-in-out infinite; animation-delay: -450ms; }
+
+@keyframes listen-a {
+  0%   { height: 5px; }
+  22%  { height: 14px; }
+  41%  { height: 7px; }
+  63%  { height: 17px; }
+  82%  { height: 9px; }
+  100% { height: 5px; }
+}
+@keyframes listen-b {
+  0%   { height: 8px; }
+  18%  { height: 4px; }
+  39%  { height: 16px; }
+  57%  { height: 6px; }
+  78%  { height: 12px; }
+  100% { height: 8px; }
+}
+@keyframes listen-c {
+  0%   { height: 6px; }
+  27%  { height: 18px; }
+  48%  { height: 10px; }
+  66%  { height: 4px; }
+  87%  { height: 13px; }
+  100% { height: 6px; }
+}
+
 .pill[data-state="transcribing"] .core { background: var(--thinking); }
 .pill[data-state="transcribing"] .bars span {
   background: var(--thinking);

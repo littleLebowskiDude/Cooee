@@ -74,7 +74,10 @@ impl Pipeline {
                     match Capture::start() {
                         Ok(c) => {
                             self.cue(Tone::Start);
-                            self.emit(State::Capturing, Some(format!("mic: {}", c.device_name)));
+                            // The device name is logged by audio.rs; on the
+                            // pill it is truncated noise ("Microphone Array
+                            // (Qualcomm ...)") and the bars say "recording".
+                            self.emit(State::Capturing, None);
                             capture = Some(c);
                         }
                         Err(e) => {
