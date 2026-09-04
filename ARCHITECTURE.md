@@ -105,7 +105,12 @@ The polish pass is rule-based by decision, not to start: an LLM pass was built, 
 
 ## Model choice
 
-**`base.en`**, 4 threads. The plan was `ggml-large-v3-turbo-q5_0.bin` (~570 MB,
+**`small.en` on the NPU, through the ONNX Runtime engine** (decided
+2026-09-04 after a day of real use: same words as whisper.cpp's `small.en`
+in 1.2 s instead of 5.2 s). On the CPU, where the rest of this section
+applies, it is **`base.en`**, 4 threads.
+
+The plan was `ggml-large-v3-turbo-q5_0.bin` (~570 MB,
 near-large accuracy, ~8x faster than large-v3) with `small.en-q5_1` as the
 fallback. Measured on the X Elite with the machine idle, turbo runs slower than
 realtime (24 s for 13.6 s of speech at 4 threads) and `small.en` is 2.4x slower
@@ -121,17 +126,14 @@ through that thread pool. The Adreno GPU is not that route — ggml's Vulkan
 backend runs on it but 16x slower than the CPU (README, "Tried and removed").
 The NPU is: measured at 59 ms for the `base.en` encoder against 460 ms on the
 CPU, and 165 ms against 1.7 s for `small.en`, transcripts unchanged
-([docs/NPU.md](docs/NPU.md)). **The plan is now `small.en` on the NPU**
-through a third `AsrEngine` on ONNX Runtime; turbo's encoder would not
-compile for the NPU in over an hour and would be slower than `small.en` even
-if it did.
+([docs/NPU.md](docs/NPU.md)). That is the third `AsrEngine`, `asr/onnx/`,
+and the default above; turbo's encoder would not compile for the NPU in
+over an hour and would be slower than `small.en` even if it did.
 
 ## Deferred
 
 - LLM polish pass, Command Mode ("make this more formal")
-- Hexagon NPU via ONNX Runtime QNN — feasibility measured, see
-  [docs/NPU.md](docs/NPU.md): encoder 59 ms on the NPU vs 460 ms on the CPU,
-  and ORT's CPU decoder alone is faster than ggml. The third `AsrEngine`.
+- Whisper's decoder on the NPU: the encoder is there, the decoder is on the CPU at its floor; needs a static-shape export, see [docs/NPU.md](docs/NPU.md)
 - Per-app injection profiles
 
 Rejected, not deferred: streaming partial transcripts. Built and removed — the

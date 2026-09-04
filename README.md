@@ -98,10 +98,18 @@ Settings → Dictionary maps what whisper hears to what you meant (`kui` →
 
 ## Real transcription
 
+Two engines, chosen by what you point the model setting at. **On a
+Snapdragon machine use the ONNX engine with `small.en` on the NPU**, the
+next section: it is the model to use, and it takes a quarter of the time
+whisper.cpp needs for it. whisper.cpp is the fallback for a machine without
+an NPU.
+
+### whisper.cpp on the CPU
+
 Needs MSVC ARM64 + clang + CMake + ninja (see [Prerequisites](#prerequisites)).
 
 ```powershell
-# 141 MB, fast, English-only. Good daily driver.
+# 141 MB, English-only. The fastest model whisper.cpp manages on this CPU.
 curl.exe -L -o models/ggml-base.en.bin `
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
 
