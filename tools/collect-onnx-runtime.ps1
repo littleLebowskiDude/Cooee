@@ -6,7 +6,7 @@
 #
 #     python -m pip install onnxruntime-qnn
 #     .\tools\collect-onnx-runtime.ps1
-#     npm run tauri build -- --features onnx --config src-tauri/tauri.onnx.conf.json
+#     npm run tauri build -- --features onnx,whisper --config src-tauri/tauri.onnx.conf.json
 #
 # The QNN files are covered by Qualcomm's AI Stack licence (Qualcomm_LICENSE.pdf
 # in the package): redistribution is allowed only in object form as part of an

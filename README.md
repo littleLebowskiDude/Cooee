@@ -130,8 +130,12 @@ python -m pip install onnxruntime-qnn
 # generation_config.json, added_tokens.json, vocab.json, merges.txt
 # -> models/whisper-small.en-onnx/ from huggingface.co/onnx-community/whisper-small.en
 
-npm run tauri dev -- --features onnx
+npm run tauri dev -- --features onnx,whisper
 ```
+
+The features are independent: `onnx` alone builds an app that can only load
+model folders, and a `.bin` model then fails with "this build has no whisper
+engine". Build both so either kind of model works.
 
 Choose the model **folder** under **Settings > Model > Folder...**. A folder
 selects this engine, a `.bin` file selects whisper.cpp. The first load
@@ -150,7 +154,7 @@ second config, which adds them as resources; the installers put them in
 
 ```powershell
 .\tools\collect-onnx-runtime.ps1     # 15 files, 134 MB -> src-tauri/runtime/
-npm run tauri build -- --features onnx --config src-tauri/tauri.onnx.conf.json
+npm run tauri build -- --features onnx,whisper --config src-tauri/tauri.onnx.conf.json
 ```
 
 The Qualcomm files are under Qualcomm's AI Stack licence, which allows
