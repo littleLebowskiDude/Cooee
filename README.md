@@ -11,6 +11,8 @@ out of sight. "Within cooee" means close enough to hear. See
 
 Built as a clone of [Wispr Flow](https://wisprflow.ai)'s core loop.
 
+**Version 1.0**, 2026-09-05. See [CHANGELOG.md](CHANGELOG.md).
+
 ## Status
 
 **Working.** Hold Ctrl+Win, speak, release — polished text lands in whatever
