@@ -56,6 +56,8 @@ Every transition emits an event to the overlay HUD so the pill can animate.
 | `asr/onnx/` | ONNX Runtime engine, feature-gated on `onnx`: `mel.rs` (log-mel front end), `tokenizer.rs` (byte-level BPE, both directions, so the dictionary prompt works), `runtime.rs` (loads `onnxruntime.dll` and the QNN plugin once per process), `mod.rs` (encoder on the NPU with a cached compiled context, greedy loop), `static_dec.rs` (whisper's decoder as fixed-shape graphs with a host-owned KV cache in HTP shared memory, so it runs on the NPU as well; the merged export on the CPU is the fallback). A model *directory* selects it. |
 | `asr/mock.rs` | Returns canned text. Lets the *whole* pipeline run before the C++ toolchain works. |
 | `polish.rs` | Raw transcript → clean text. Filler removal, dictionary, capitalisation. The dictionary's targets also go to the engine as whisper's initial prompt, so most corrections never need to fire. |
+| `caret.rs` | Reads the characters either side of the caret in the focused field through UI Automation's text pattern, and pads the dictation with a space where it would otherwise fuse with a word. Apps without a text pattern get the text unchanged. |
+| `history.rs` | Every dictation that made it past polishing, newest first, capped, in `%APPDATA%\cooee\history.json`. Recorded before insertion so a dictation that lands in the wrong window can still be copied from the main window. |
 | `inject.rs` | Text → focused window. |
 | `overlay.rs` | Moves the HUD to the bottom-centre of the work area of the monitor holding the focused window, just before each show. |
 | `tone.rs` | Two short faded sine bursts (rising start, falling stop) via `cpal`, on their own thread so a slow output device never delays capture. Off by `audio_feedback`. |

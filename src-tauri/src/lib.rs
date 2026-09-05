@@ -2,6 +2,7 @@
 
 pub mod asr;
 pub mod audio;
+pub mod caret;
 pub mod config;
 pub mod history;
 pub mod hotkey;

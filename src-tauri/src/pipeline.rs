@@ -228,6 +228,12 @@ impl Pipeline {
         });
 
         self.emit(State::Injecting, None);
+        // A space either side when the caret is against a word, so a
+        // mid-sentence dictation does not fuse with what is already there.
+        let text = match crate::caret::neighbours() {
+            Some(n) => crate::caret::pad(&text, &n),
+            None => text,
+        };
         inject::inject(&text, strategy)?;
 
         let total = started.elapsed().as_millis();
