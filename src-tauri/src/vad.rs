@@ -37,6 +37,36 @@ pub fn trim(pcm: &[f32]) -> Option<&[f32]> {
     Some(&pcm[start..end])
 }
 
+/// How far before a window's limit the quietest cut is looked for.
+const CUT_SEARCH_SECS: usize = 5;
+
+/// Splits `pcm` into windows no longer than `max_len` samples, each cut at
+/// the quietest 20 ms in the last [`CUT_SEARCH_SECS`] before the limit rather
+/// than at the limit itself, so a word is never halved. A clip within the
+/// limit comes back whole.
+pub fn windows(pcm: &[f32], max_len: usize) -> Vec<&[f32]> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let search = CUT_SEARCH_SECS * SAMPLE_RATE as usize;
+    while pcm.len() - start > max_len {
+        let limit = start + max_len;
+        let from = limit.saturating_sub(search).max(start + FRAME);
+        let mut best = (f32::MAX, limit);
+        let mut at = from;
+        while at + FRAME <= limit {
+            let e = rms(&pcm[at..at + FRAME]);
+            if e < best.0 {
+                best = (e, at + FRAME / 2);
+            }
+            at += FRAME;
+        }
+        out.push(&pcm[start..best.1]);
+        start = best.1;
+    }
+    out.push(&pcm[start..]);
+    out
+}
+
 /// Peak amplitude, for the live level meter in the overlay.
 pub fn peak(pcm: &[f32]) -> f32 {
     pcm.iter().fold(0.0f32, |m, s| m.max(s.abs()))
@@ -94,6 +124,33 @@ mod tests {
         let mut pcm = vec![0.99f32; 100];
         normalise(&mut pcm);
         assert!(peak(&pcm) <= 0.71, "loud input should be scaled down");
+    }
+
+    #[test]
+    fn windows_cut_at_the_quietest_frame_before_the_limit() {
+        let sr = SAMPLE_RATE as usize;
+        // 50 s of "speech" with one 200 ms silence at 27 s.
+        let mut pcm = vec![0.3f32; 50 * sr];
+        for s in &mut pcm[27 * sr..27 * sr + sr / 5] {
+            *s = 0.0;
+        }
+        let w = windows(&pcm, 30 * sr);
+        assert_eq!(w.len(), 2);
+        let cut = w[0].len();
+        assert!(cut > 27 * sr && cut < 27 * sr + sr / 5, "cut inside the silence, got {cut}");
+        assert_eq!(w[0].len() + w[1].len(), pcm.len());
+    }
+
+    #[test]
+    fn windows_leave_a_short_clip_whole_and_cap_a_flat_one() {
+        let sr = SAMPLE_RATE as usize;
+        let short = vec![0.3f32; 10 * sr];
+        assert_eq!(windows(&short, 30 * sr).len(), 1);
+        let flat = vec![0.3f32; 65 * sr];
+        let w = windows(&flat, 30 * sr);
+        assert_eq!(w.len(), 3);
+        assert!(w.iter().all(|x| x.len() <= 30 * sr));
+        assert_eq!(w.iter().map(|x| x.len()).sum::<usize>(), flat.len());
     }
 
     #[test]

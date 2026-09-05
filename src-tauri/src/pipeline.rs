@@ -170,7 +170,7 @@ impl Pipeline {
     /// Everything after the key comes up: stop, trim, transcribe, polish, inject.
     fn finish(&self, capture: Capture) -> anyhow::Result<()> {
         let started = Instant::now();
-        let pcm = capture.take()?;
+        let (pcm, cut) = capture.take()?;
         // After the mic is closed, so the stop tone is never in the recording.
         self.cue(Tone::Stop);
 
@@ -245,7 +245,12 @@ impl Pipeline {
             total_ms = total as u64,
             "dictated"
         );
-        self.emit(State::Idle, Some(format!("{total} ms")));
+        let detail = if cut {
+            format!("cut at {}:{:02} · {total} ms", crate::audio::MAX_SECONDS / 60, crate::audio::MAX_SECONDS % 60)
+        } else {
+            format!("{total} ms")
+        };
+        self.emit(State::Idle, Some(detail));
         Ok(())
     }
 

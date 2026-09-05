@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Capture up to five minutes (was one, and the cut was silent). The HUD
+  says "cut at 5:00" if it is ever hit.
+- The NPU engine cuts long audio into 30 s windows at the quietest moment
+  before each limit instead of at the limit, so no word is halved.
+
 ## 1.0.0 — 2026-09-05
 
 The first release. Push-to-talk dictation for Windows on ARM64, entirely on

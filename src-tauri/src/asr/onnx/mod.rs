@@ -511,7 +511,8 @@ impl AsrEngine for OnnxEngine {
         };
         let prefix = self.generation.prefix(&prompt_ids);
         let mut text = String::new();
-        for window in pcm.chunks(mel::CHUNK) {
+        // 30 s windows, each cut where it is quietest so no word is halved.
+        for window in crate::vad::windows(pcm, mel::CHUNK) {
             let piece = self.transcribe_window(window, &prefix)?;
             let piece = piece.trim();
             if piece.is_empty() {

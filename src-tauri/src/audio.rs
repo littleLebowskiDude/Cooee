@@ -14,8 +14,11 @@ use rubato::{FftFixedIn, Resampler};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-/// Guards against a stuck hotkey eating memory. 60 s at 48 kHz mono.
-const MAX_SAMPLES: usize = 48_000 * 60;
+/// Longest capture kept, in seconds. A guard against a stuck hotkey eating
+/// memory, sized so a long dictation is never cut: five minutes at 48 kHz
+/// mono is 58 MB. The pipeline tells the HUD when it is hit.
+pub const MAX_SECONDS: usize = 5 * 60;
+const MAX_SAMPLES: usize = 48_000 * MAX_SECONDS;
 
 #[derive(Default)]
 struct Buffer {
@@ -132,14 +135,15 @@ impl Capture {
         self.meter.clone()
     }
 
-    /// Stops the stream and returns 16 kHz mono f32, ready for the ASR engine.
-    pub fn take(self) -> Result<Vec<f32>> {
+    /// Stops the stream and returns 16 kHz mono f32, ready for the ASR
+    /// engine, and whether the capture hit [`MAX_SECONDS`] and was cut.
+    pub fn take(self) -> Result<(Vec<f32>, bool)> {
         drop(self.stream); // stops capture
         let buf = std::mem::take(&mut *self.buffer.lock());
         if buf.truncated {
-            tracing::warn!("capture hit the {MAX_SAMPLES}-sample ceiling and was truncated");
+            tracing::warn!("capture hit the {MAX_SECONDS} s ceiling and was cut");
         }
-        resample_to_16k(&buf.samples, self.src_rate)
+        Ok((resample_to_16k(&buf.samples, self.src_rate)?, buf.truncated))
     }
 }
 
