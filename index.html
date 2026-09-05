@@ -2,17 +2,30 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Cooee Settings</title>
+    <title>Cooee</title>
     <link rel="stylesheet" href="/src/theme.css" />
     <link rel="stylesheet" href="/src/settings/settings.css" />
   </head>
   <body>
     <main>
       <header>
-        <h1>Cooee</h1>
-        <p class="engine" id="engine">…</p>
+        <div>
+          <h1>Cooee</h1>
+          <p class="engine" id="engine">…</p>
+        </div>
+        <button id="cog" class="icon" title="Settings" aria-label="Settings">&#9881;</button>
       </header>
 
+      <div id="history-view">
+        <div class="history-head">
+          <h2>History</h2>
+          <button id="clear-history">Clear</button>
+        </div>
+        <p class="hint">Everything you have dictated, newest first. Copy one if it landed in the wrong place.</p>
+        <ul id="history"></ul>
+      </div>
+
+      <div id="settings-view" hidden>
       <section>
         <h2>Model</h2>
         <label>
@@ -89,8 +102,10 @@
 
       <footer>
         <span id="status"></span>
+        <button id="done">Back</button>
         <button id="save" class="primary">Save</button>
       </footer>
+      </div>
     </main>
     <script type="module" src="/src/settings/settings.ts"></script>
   </body>

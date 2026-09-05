@@ -3,6 +3,7 @@
 pub mod asr;
 pub mod audio;
 pub mod config;
+pub mod history;
 pub mod hotkey;
 pub mod inject;
 pub mod overlay;
@@ -39,6 +40,18 @@ impl Observer for WindowObserver {
         // Twenty a second while capturing; a dropped one is invisible.
         let _ = self.0.emit("level", level);
     }
+
+    fn on_dictated(&self, dictated: pipeline::Dictated) {
+        let entry = self
+            .0
+            .state::<AppState>()
+            .history
+            .write()
+            .push(dictated.text, dictated.inference_ms, dictated.elapsed_ms);
+        if let Err(e) = self.0.emit("history", &entry) {
+            tracing::debug!("could not emit history: {e}");
+        }
+    }
 }
 
 /// Shared application state exposed to Tauri commands.
@@ -46,6 +59,7 @@ pub struct AppState {
     pub config: Arc<RwLock<Config>>,
     pub engine: EngineSlot,
     pub engine_info: Arc<RwLock<EngineInfo>>,
+    pub history: Arc<RwLock<history::History>>,
 }
 
 fn publish_engine_info(app: &AppHandle, info: EngineInfo) {
@@ -208,6 +222,31 @@ fn test_injection(text: String, state: tauri::State<AppState>) -> Result<(), Str
     inject::inject(&text, strategy).map_err(|e| e.to_string())
 }
 
+/// Newest first.
+#[tauri::command]
+fn get_history(state: tauri::State<AppState>) -> Vec<history::Entry> {
+    state.history.read().entries()
+}
+
+#[tauri::command]
+fn delete_history(id: u64, state: tauri::State<AppState>) {
+    state.history.write().remove(id);
+}
+
+#[tauri::command]
+fn clear_history(state: tauri::State<AppState>) {
+    state.history.write().clear();
+}
+
+/// Puts a past dictation on the clipboard, for pasting wherever it was
+/// meant to go.
+#[tauri::command]
+fn copy_text(text: String) -> Result<(), String> {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.set_text(text))
+        .map_err(|e| e.to_string())
+}
+
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -229,6 +268,7 @@ pub fn run() {
             model: config.read().model_path.clone(),
             error: None,
         })),
+        history: Arc::new(RwLock::new(history::History::load())),
     };
 
     tauri::Builder::default()
@@ -256,7 +296,11 @@ pub fn run() {
             engine_info,
             pick_model,
             pick_model_dir,
-            test_injection
+            test_injection,
+            get_history,
+            delete_history,
+            clear_history,
+            copy_text
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

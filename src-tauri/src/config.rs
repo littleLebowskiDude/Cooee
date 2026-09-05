@@ -146,12 +146,17 @@ fn migrate(value: &mut serde_json::Value) {
     }
 }
 
-pub fn config_path() -> Result<PathBuf> {
+/// `%APPDATA%\cooee`, created if missing. Config and history live here.
+pub fn config_dir() -> Result<PathBuf> {
     let dir = dirs::config_dir()
         .context("could not resolve the user config directory")?
         .join("cooee");
     std::fs::create_dir_all(&dir).context("could not create the config directory")?;
-    Ok(dir.join("config.json"))
+    Ok(dir)
+}
+
+pub fn config_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join("config.json"))
 }
 
 impl Config {

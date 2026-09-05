@@ -35,7 +35,7 @@ pub fn set_hotkey_label<R: Runtime>(app: &AppHandle<R>, hotkey_label: &str) {
 }
 
 pub fn build<R: Runtime>(app: &AppHandle<R>, hotkey_label: &str) -> tauri::Result<()> {
-    let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, "settings", "Open Cooee…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Cooee", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&settings, &separator, &quit])?;

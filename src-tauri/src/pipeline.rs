@@ -45,9 +45,22 @@ pub struct StatusEvent {
     pub detail: Option<String>,
 }
 
+/// A finished dictation, reported before insertion so it is kept even when
+/// the insertion fails or lands in the wrong place.
+#[derive(Debug, Clone)]
+pub struct Dictated {
+    pub text: String,
+    pub inference_ms: u64,
+    /// Release to text ready.
+    pub elapsed_ms: u64,
+}
+
 /// Anything that wants to observe the pipeline (the Tauri window, tests, a CLI).
 pub trait Observer: Send + Sync {
     fn on_status(&self, event: StatusEvent);
+
+    /// Text is ready and about to be inserted.
+    fn on_dictated(&self, _dictated: Dictated) {}
 
     /// Input level in `0.0..=1.0`, about twenty times a second while
     /// capturing. Drives the HUD bars; nothing else depends on it.
@@ -207,6 +220,12 @@ impl Pipeline {
             self.emit(State::Idle, Some("nothing to insert".into()));
             return Ok(());
         }
+
+        self.observer.on_dictated(Dictated {
+            text: text.clone(),
+            inference_ms: transcript.inference_ms,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        });
 
         self.emit(State::Injecting, None);
         inject::inject(&text, strategy)?;

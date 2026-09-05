@@ -22,7 +22,91 @@ interface EngineInfo {
   error?: string;
 }
 
+/** Mirrors `history::Entry`. */
+interface HistoryEntry {
+  id: number;
+  text: string;
+  inference_ms: number;
+  elapsed_ms: number;
+}
+
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+// ---- Views: history by default, settings behind the cog ------------------------
+
+const historyView = $<HTMLDivElement>("history-view");
+const settingsView = $<HTMLDivElement>("settings-view");
+
+function showSettings(on: boolean) {
+  historyView.hidden = on;
+  settingsView.hidden = !on;
+  window.scrollTo(0, 0);
+}
+
+$("cog").onclick = () => showSettings(settingsView.hidden);
+$("done").onclick = () => showSettings(false);
+
+// ---- History -------------------------------------------------------------------
+
+const historyList = $<HTMLUListElement>("history");
+let history: HistoryEntry[] = await invoke<HistoryEntry[]>("get_history");
+
+function when(id: number): string {
+  const d = new Date(id);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return sameDay ? time : `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
+}
+
+function renderHistory() {
+  historyList.innerHTML = "";
+  if (history.length === 0) {
+    historyList.innerHTML = `<li class="empty">Nothing dictated yet. Hold the hotkey and speak.</li>`;
+    return;
+  }
+  for (const entry of history) {
+    const li = document.createElement("li");
+    const text = document.createElement("p");
+    text.className = "text";
+    text.textContent = entry.text;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const stamp = document.createElement("span");
+    stamp.textContent = `${when(entry.id)} · ${entry.text.length} chars · ${entry.elapsed_ms} ms`;
+    const copy = document.createElement("button");
+    copy.textContent = "Copy";
+    copy.onclick = async () => {
+      await invoke("copy_text", { text: entry.text });
+      copy.textContent = "Copied";
+      setTimeout(() => (copy.textContent = "Copy"), 1500);
+    };
+    const del = document.createElement("button");
+    del.textContent = "Delete";
+    del.onclick = async () => {
+      await invoke("delete_history", { id: entry.id });
+      history = history.filter((e) => e.id !== entry.id);
+      renderHistory();
+    };
+    meta.append(stamp, copy, del);
+    li.append(text, meta);
+    historyList.append(li);
+  }
+}
+
+$("clear-history").onclick = async () => {
+  if (history.length === 0) return;
+  await invoke("clear_history");
+  history = [];
+  renderHistory();
+};
+
+await listen<HistoryEntry>("history", ({ payload }) => {
+  history = [payload, ...history.filter((e) => e.id !== payload.id)];
+  renderHistory();
+});
+
+renderHistory();
 
 const presetSelect = $<HTMLSelectElement>("hotkey-preset");
 const customField = $<HTMLDivElement>("hotkey-custom");
