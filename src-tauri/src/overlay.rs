@@ -40,6 +40,40 @@ pub fn place<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// Centres the settings window on the monitor under the cursor, just before
+/// it is shown. Windows otherwise opens it wherever it last was, which on a
+/// laptop that has been undocked can be a monitor that is no longer there.
+pub fn place_settings<R: Runtime>(app: &AppHandle<R>) {
+    let Some(window) = app.get_webview_window("settings") else {
+        return;
+    };
+    let cursor = app.cursor_position().ok();
+    let under_cursor = cursor.and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten());
+    let monitor = under_cursor.or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    tracing::debug!(
+        cursor = ?cursor.map(|p| (p.x, p.y)),
+        monitor = ?monitor.name(),
+        at = ?(monitor.position().x, monitor.position().y),
+        scale = monitor.scale_factor(),
+        "placing settings"
+    );
+    let (Ok(current_scale), Ok(size)) = (window.scale_factor(), window.outer_size()) else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let width = size.width as f64 / current_scale * scale;
+    let height = size.height as f64 / current_scale * scale;
+    let work = monitor.work_area();
+    let x = work.position.x as f64 + (work.size.width as f64 - width) / 2.0;
+    let y = work.position.y as f64 + (work.size.height as f64 - height) / 2.0;
+    if let Err(e) = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32)) {
+        tracing::debug!("could not position settings: {e}");
+    }
+}
+
 /// The monitor under the focused window, else the primary.
 fn target_monitor<R: Runtime>(app: &AppHandle<R>) -> Option<Monitor> {
     if let Some((x, y)) = imp::foreground_centre() {

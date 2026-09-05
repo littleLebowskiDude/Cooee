@@ -236,10 +236,7 @@ pub fn run() {
         // dictation would be typed twice. Focus the existing one instead.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("settings") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            tray::show_settings(app);
         }))
         .manage(state)
         // Closing the settings window must hide it, not destroy it: a

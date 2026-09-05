@@ -10,9 +10,11 @@ use tauri::{
     AppHandle, Manager, Runtime,
 };
 
-/// Brings the settings window to the foreground, creating focus if hidden.
-fn show_settings<R: Runtime>(app: &AppHandle<R>) {
+/// Brings the settings window to the foreground on the monitor the cursor
+/// is on, creating focus if hidden.
+pub fn show_settings<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("settings") {
+        crate::overlay::place_settings(app);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
