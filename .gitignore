@@ -26,3 +26,6 @@ models/*-onnx/
 # ONNX Runtime + QNN DLLs bundled beside the exe; tools/collect-onnx-runtime.ps1
 src-tauri/runtime/
 __pycache__/
+
+# The hostable landing page, zipped for upload (site/ is the source)
+cooee-site.zip
