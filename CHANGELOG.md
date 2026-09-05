@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.1 — 2026-09-05
 
 - Capture up to five minutes (was one, and the cut was silent). The HUD
   says "cut at 5:00" if it is ever hit.

@@ -1,6 +1,6 @@
 [package]
 name = "cooee"
-version = "1.0.0"
+version = "1.0.1"
 description = "Push-to-talk local dictation"
 edition = "2021"
 rust-version = "1.77"
