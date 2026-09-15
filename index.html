@@ -51,7 +51,7 @@
       </section>
 
       <section>
-        <h2>Push to talk</h2>
+        <h2>Dictating</h2>
         <label>
           Hotkey
           <select id="hotkey-preset">
@@ -68,11 +68,19 @@
             <input id="hotkey" type="text" readonly placeholder="Click, hold the keys together, then release" />
           </label>
         </div>
-        <p class="hint">Hold to dictate, release to insert. Applies as soon as you save.</p>
+        <label>
+          Capture
+          <select id="capture-mode">
+            <option value="hold">Hold — speak while the keys are down</option>
+            <option value="latch">Latch — tap to start, tap again to stop</option>
+          </select>
+        </label>
+        <p class="hint" id="capture-hint"></p>
         <label class="check">
           <input id="feedback" type="checkbox" />
-          Play a tone when capture starts and stops
+          Play a tone when capture starts and stops, and when nothing was inserted
         </label>
+        <p class="hint">The third tone is lower and longer than the other two. Without it a dictation that produced nothing sounds exactly like one that worked.</p>
       </section>
 
       <section>
@@ -90,6 +98,40 @@
       </section>
 
       <section>
+        <h2>Per-app insertion</h2>
+        <p class="hint">
+          No single strategy works everywhere. Some Electron apps drop synthesised keystrokes and want
+          a paste; fields that refuse a paste want the keystrokes. Name an executable here to override
+          the strategy above for that app only. Everything not listed keeps using it.
+        </p>
+        <div class="profile-add">
+          <input id="profile-app" placeholder="outlook.exe" list="common-apps" />
+          <select id="profile-strategy">
+            <option value="auto">Auto</option>
+            <option value="paste">Always paste</option>
+            <option value="type">Always type</option>
+          </select>
+          <button id="profile-add">Add</button>
+        </div>
+        <datalist id="common-apps">
+          <option value="outlook.exe"></option>
+          <option value="winword.exe"></option>
+          <option value="excel.exe"></option>
+          <option value="ms-teams.exe"></option>
+          <option value="code.exe"></option>
+          <option value="windowsterminal.exe"></option>
+          <option value="powershell.exe"></option>
+          <option value="msedge.exe"></option>
+          <option value="chrome.exe"></option>
+          <option value="slack.exe"></option>
+          <option value="notepad.exe"></option>
+        </datalist>
+        <button id="detect">Detect the app I switch to…</button>
+        <p class="hint">Click, then focus the app you want a profile for. Saves you having to know what its executable is called.</p>
+        <ul id="profiles"></ul>
+      </section>
+
+      <section>
         <h2>Dictionary</h2>
         <p class="hint">Words the model keeps getting wrong. The corrections are applied to every transcript, and the right-hand spellings are also shown to the model before it listens, so it usually gets them first time.</p>
         <div class="dict-add">
@@ -98,6 +140,23 @@
           <button id="add">Add</button>
         </div>
         <ul id="dict"></ul>
+      </section>
+
+      <section>
+        <h2>Your data</h2>
+        <p class="hint">
+          Everything Cooee holds is on this machine, in the folder below. Nothing is sent anywhere —
+          the binary has no HTTP client and no TLS stack compiled into it, so there is nothing in it
+          that could originate a request. Run <code>tools\no-network.ps1</code> to check that against
+          the real dependency tree rather than taking it on trust.
+        </p>
+        <dl class="facts" id="data-facts"></dl>
+        <div class="data-actions">
+          <button id="open-folder">Open folder</button>
+          <button id="export">Export history…</button>
+          <button id="forget" class="danger">Delete all history</button>
+        </div>
+        <p class="hint">Transcripts are stored as plain JSON, so treat the folder the way you would treat the documents you dictated.</p>
       </section>
 
       <footer>

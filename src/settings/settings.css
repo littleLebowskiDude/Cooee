@@ -63,6 +63,23 @@ button.primary { background: var(--accent); border-color: transparent; color: va
 .dict-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: start; }
 .dict-add button { margin-top: 6px; }
 
+/* ---- Per-app insertion ------------------------------------------------------- */
+.profile-add { display: grid; grid-template-columns: 1fr 170px auto; gap: 8px; align-items: start; }
+.profile-add button { margin-top: 6px; }
+#profiles { list-style: none; padding: 0; margin: 16px 0 0; }
+#profiles li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+#profiles .app { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12px; }
+#profiles .arrow { color: var(--muted); }
+#profiles button { margin: 0; padding: 4px 10px; font-size: 12px; margin-left: auto; }
+#profiles .empty { color: var(--muted); border: none; }
+
 #dict { list-style: none; padding: 0; margin: 16px 0 0; }
 #dict li {
   display: flex;
@@ -115,3 +132,27 @@ button.icon {
 #history .meta button { margin: 0; padding: 4px 10px; font-size: 12px; }
 #history .empty { color: var(--muted); border: none; }
 #history-view[hidden], #settings-view[hidden] { display: none; }
+
+/* ---- Your data -------------------------------------------------------------- */
+.facts { margin: 16px 0 0; font-size: 13px; }
+.facts div {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.facts dt { color: var(--muted); }
+.facts dd {
+  margin: 0;
+  word-break: break-all;
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 12px;
+  /* The history row carries its path on a second line. */
+  white-space: pre-line;
+}
+/* The one fact that is a claim rather than a path. */
+.facts dd[data-ok] { color: var(--injecting); font-family: inherit; font-size: 13px; }
+.data-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+button.danger { color: var(--error); }
+button.danger:hover { border-color: var(--error); }

@@ -135,6 +135,13 @@ impl Capture {
         self.meter.clone()
     }
 
+    /// Whether the buffer has already hit [`MAX_SECONDS`]. A latched capture
+    /// has no key coming up to end it, so the pipeline polls this to close the
+    /// microphone once there is nothing left to record.
+    pub fn truncated(&self) -> bool {
+        self.buffer.lock().truncated
+    }
+
     /// Stops the stream and returns 16 kHz mono f32, ready for the ASR
     /// engine, and whether the capture hit [`MAX_SECONDS`] and was cut.
     pub fn take(self) -> Result<(Vec<f32>, bool)> {

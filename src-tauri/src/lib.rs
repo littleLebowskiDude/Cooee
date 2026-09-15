@@ -4,6 +4,7 @@ pub mod asr;
 pub mod audio;
 pub mod caret;
 pub mod config;
+pub mod focus;
 pub mod history;
 pub mod hotkey;
 pub mod inject;
@@ -43,12 +44,11 @@ impl Observer for WindowObserver {
     }
 
     fn on_dictated(&self, dictated: pipeline::Dictated) {
-        let entry = self
-            .0
-            .state::<AppState>()
-            .history
-            .write()
-            .push(dictated.text, dictated.inference_ms, dictated.elapsed_ms);
+        let entry = self.0.state::<AppState>().history.write().push(
+            dictated.text,
+            dictated.inference_ms,
+            dictated.elapsed_ms,
+        );
         if let Err(e) = self.0.emit("history", &entry) {
             tracing::debug!("could not emit history: {e}");
         }
@@ -223,10 +223,129 @@ fn test_injection(text: String, state: tauri::State<AppState>) -> Result<(), Str
     inject::inject(&text, strategy).map_err(|e| e.to_string())
 }
 
+/// The app with focus right now, for the settings UI's detect affordance.
+/// Nobody should have to know that Windows Terminal's executable is called
+/// `WindowsTerminal.exe` in order to give it a profile.
+#[tauri::command]
+fn foreground_app() -> Option<String> {
+    focus::foreground_exe()
+}
+
 /// Newest first.
 #[tauri::command]
 fn get_history(state: tauri::State<AppState>) -> Vec<history::Entry> {
     state.history.read().entries()
+}
+
+/// Everything the app holds on this machine, and where.
+///
+/// The point of the panel this feeds is that "nothing leaves the machine" is
+/// unfalsifiable from the outside. Naming every file the app writes, and
+/// offering to hand them over or delete them, is the part a user can check.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DataReport {
+    config_dir: Option<String>,
+    config_path: Option<String>,
+    history_path: Option<String>,
+    history_entries: usize,
+    history_bytes: Option<u64>,
+    /// The model actually being used, if any. Local file or folder.
+    model_path: Option<String>,
+    /// Engine currently loaded, so the panel does not have to guess.
+    engine: Option<String>,
+}
+
+#[tauri::command]
+fn data_report(state: tauri::State<AppState>) -> DataReport {
+    let history = state.history.read();
+    let show = |p: &std::path::Path| p.display().to_string();
+    DataReport {
+        config_dir: config::config_dir().ok().map(|p| show(&p)),
+        config_path: config::config_path().ok().map(|p| show(&p)),
+        history_path: history.path().map(show),
+        history_entries: history.len(),
+        history_bytes: history.bytes(),
+        model_path: state.config.read().model_path.as_deref().map(show),
+        engine: state.engine_info.read().engine.clone(),
+    }
+}
+
+/// Writes every transcript to a file the user chooses. Async so the blocking
+/// dialog stays off the event loop, as with the model pickers.
+#[tauri::command]
+async fn export_history(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<PathBuf>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    // Serialise before the dialog: holding the lock across an await would
+    // block every dictation for as long as the picker is open.
+    let json = state
+        .history
+        .read()
+        .export_json()
+        .map_err(|e| e.to_string())?;
+
+    let stamp = chrono_stamp();
+    let Some(path) = window
+        .dialog()
+        .file()
+        .set_title("Export dictation history")
+        .set_file_name(format!("cooee-history-{stamp}.json"))
+        .add_filter("JSON", &["json"])
+        .set_parent(&window)
+        .blocking_save_file()
+        .map(|f| f.into_path())
+        .transpose()
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(Some(path))
+}
+
+/// `YYYY-MM-DD` for today, without pulling in a date library for one filename.
+fn chrono_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (y, m, d) = civil_from_days((secs / 86_400) as i64);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Days since the Unix epoch to a calendar date, by Howard Hinnant's
+/// `civil_from_days`. Split out from [`chrono_stamp`] so it can be tested
+/// against known dates: a filename is low stakes, but a date routine written
+/// from memory is exactly the kind of thing that is quietly wrong for years.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+/// Opens the folder holding config and history in Explorer, so "it is all in
+/// these two files" can be verified rather than taken on trust.
+#[tauri::command]
+fn open_data_folder() -> Result<(), String> {
+    let dir = config::config_dir().map_err(|e| e.to_string())?;
+    // explorer.exe reports a non-zero exit code even when it succeeds, so the
+    // status is deliberately not checked; only a failure to spawn is an error.
+    std::process::Command::new("explorer.exe")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -301,7 +420,11 @@ pub fn run() {
             get_history,
             delete_history,
             clear_history,
-            copy_text
+            copy_text,
+            data_report,
+            export_history,
+            open_data_folder,
+            foreground_app
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -334,4 +457,42 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running cooee");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::civil_from_days;
+
+    #[test]
+    fn converts_days_since_the_epoch_to_a_date() {
+        // Anchors chosen for the cases the algorithm gets wrong when it is
+        // misremembered: the epoch itself, a leap day, a century boundary
+        // that *is* a leap year, and one that is not.
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(789), (1972, 2, 29));
+        assert_eq!(civil_from_days(10_957), (2000, 1, 1));
+        assert_eq!(civil_from_days(19_782), (2024, 2, 29));
+        assert_eq!(civil_from_days(20_710), (2026, 9, 14));
+        // 2100 is not a leap year, so day 47541 is 1 March and not 29 Feb.
+        assert_eq!(civil_from_days(47_541), (2100, 3, 1));
+    }
+
+    #[test]
+    fn every_day_of_a_year_round_trips_in_order() {
+        // Walks 1999 into 2001 across the 2000 leap day, checking the parts
+        // stay in range and the sequence never repeats or skips.
+        let mut previous = civil_from_days(10_500);
+        for day in 10_501..11_500 {
+            let (y, m, d) = civil_from_days(day);
+            assert!((1..=12).contains(&m), "month {m} out of range on day {day}");
+            assert!((1..=31).contains(&d), "day {d} out of range on day {day}");
+            assert!(
+                (y, m, d) > previous,
+                "day {day} gave {:?} after {:?}",
+                (y, m, d),
+                previous
+            );
+            previous = (y, m, d);
+        }
+    }
 }

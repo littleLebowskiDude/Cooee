@@ -2,6 +2,7 @@
 
 use crate::hotkey::Hotkey;
 use crate::inject::Strategy;
+use crate::pipeline::CaptureMode;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -12,9 +13,15 @@ use std::path::PathBuf;
 pub struct Config {
     /// Keys held together to dictate. Defaults to Ctrl+Win.
     pub hotkey: Hotkey,
+    /// Whether the chord is held for the utterance or tapped to start and stop.
+    pub capture_mode: CaptureMode,
     /// Path to a whisper.cpp GGML model. `None` means the mock engine.
     pub model_path: Option<PathBuf>,
     pub injection: Strategy,
+    /// Per-application overrides for [`Self::injection`], keyed by executable
+    /// name (`outlook.exe`). Empty by default, so an upgraded install behaves
+    /// exactly as it did before there were profiles.
+    pub profiles: BTreeMap<String, Strategy>,
     pub dictionary: Dictionary,
     /// Play a short tone on capture start/stop.
     pub audio_feedback: bool,
@@ -29,12 +36,35 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             hotkey: Hotkey::default(),
+            capture_mode: CaptureMode::default(),
             model_path: None,
             injection: Strategy::default(),
+            profiles: BTreeMap::new(),
             dictionary: Dictionary::default(),
             audio_feedback: true,
             asr_threads: None,
         }
+    }
+}
+
+impl Config {
+    /// The insertion strategy for the application about to receive the text.
+    ///
+    /// Falls back to the global setting whenever there is no profile for the
+    /// app, or no app could be identified at all, so the feature can only ever
+    /// change behaviour for an app the user has explicitly named.
+    ///
+    /// Matching ignores case: keys are written lowercased by the settings UI,
+    /// but the file is plain JSON and people edit it by hand.
+    pub fn strategy_for(&self, exe: Option<&str>) -> Strategy {
+        let Some(exe) = exe else {
+            return self.injection;
+        };
+        self.profiles
+            .iter()
+            .find(|(app, _)| app.eq_ignore_ascii_case(exe))
+            .map(|(_, strategy)| *strategy)
+            .unwrap_or(self.injection)
     }
 }
 
@@ -241,6 +271,74 @@ mod tests {
         let json = serde_json::to_string(&Config::default()).unwrap();
         let back: Config = serde_json::from_str(&json).unwrap();
         assert_eq!(back.hotkey, Hotkey::default());
+    }
+
+    #[test]
+    fn no_profiles_means_the_global_strategy_everywhere() {
+        let cfg = Config {
+            injection: Strategy::Auto,
+            ..Default::default()
+        };
+        // The upgrade path: an existing config has no profiles map at all.
+        assert_eq!(cfg.strategy_for(Some("outlook.exe")), Strategy::Auto);
+        assert_eq!(cfg.strategy_for(None), Strategy::Auto);
+    }
+
+    #[test]
+    fn a_profile_overrides_only_its_own_app() {
+        let mut cfg = Config {
+            injection: Strategy::Auto,
+            ..Default::default()
+        };
+        cfg.profiles
+            .insert("windowsterminal.exe".into(), Strategy::Type);
+        assert_eq!(
+            cfg.strategy_for(Some("windowsterminal.exe")),
+            Strategy::Type
+        );
+        assert_eq!(cfg.strategy_for(Some("outlook.exe")), Strategy::Auto);
+        // An unidentifiable app must never pick up someone else's profile.
+        assert_eq!(cfg.strategy_for(None), Strategy::Auto);
+    }
+
+    #[test]
+    fn profile_lookup_ignores_case() {
+        let mut cfg = Config {
+            injection: Strategy::Auto,
+            ..Default::default()
+        };
+        // As a hand-edited config might spell it.
+        cfg.profiles.insert("OUTLOOK.EXE".into(), Strategy::Paste);
+        assert_eq!(cfg.strategy_for(Some("outlook.exe")), Strategy::Paste);
+    }
+
+    #[test]
+    fn profiles_survive_a_json_round_trip() {
+        let mut cfg = Config::default();
+        cfg.profiles.insert("code.exe".into(), Strategy::Paste);
+        let back: Config = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(back.strategy_for(Some("code.exe")), Strategy::Paste);
+    }
+
+    #[test]
+    fn a_1_0_config_still_loads_and_gains_empty_profiles() {
+        // Exactly the shape 1.0.1 wrote, with no capture_mode and no profiles.
+        let raw = r#"{
+            "hotkey": [17, 91],
+            "model_path": null,
+            "injection": "auto",
+            "dictionary": {},
+            "audio_feedback": true,
+            "asr_threads": null
+        }"#;
+        let cfg: Config = serde_json::from_str(raw).unwrap();
+        assert!(cfg.profiles.is_empty());
+        assert_eq!(
+            cfg.capture_mode,
+            CaptureMode::Hold,
+            "hold must stay default"
+        );
+        assert_eq!(cfg.strategy_for(Some("anything.exe")), Strategy::Auto);
     }
 
     #[test]

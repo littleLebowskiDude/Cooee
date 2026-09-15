@@ -2,13 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 type Strategy = "auto" | "paste" | "type";
+type CaptureMode = "hold" | "latch";
 
 /** Mirrors `Config` in config.rs. Fields not listed here still round-trip:
  *  the object comes back from `get_config` whole and is sent back whole. */
 interface Config {
   hotkey: number[];
+  capture_mode: CaptureMode;
   model_path: string | null;
   injection: Strategy;
+  profiles: Record<string, Strategy>;
   dictionary: Record<string, string>;
   audio_feedback: boolean;
   asr_threads: number | null;
@@ -30,6 +33,17 @@ interface HistoryEntry {
   elapsed_ms: number;
 }
 
+/** Mirrors `DataReport` in lib.rs. */
+interface DataReport {
+  config_dir: string | null;
+  config_path: string | null;
+  history_path: string | null;
+  history_entries: number;
+  history_bytes: number | null;
+  model_path: string | null;
+  engine: string | null;
+}
+
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 // ---- Views: history by default, settings behind the cog ------------------------
@@ -41,6 +55,8 @@ function showSettings(on: boolean) {
   historyView.hidden = on;
   settingsView.hidden = !on;
   window.scrollTo(0, 0);
+  // The counts and the file size go stale as soon as anything is dictated.
+  if (on) void renderData();
 }
 
 $("cog").onclick = () => showSettings(settingsView.hidden);
@@ -62,7 +78,7 @@ function when(id: number): string {
 function renderHistory() {
   historyList.innerHTML = "";
   if (history.length === 0) {
-    historyList.innerHTML = `<li class="empty">Nothing dictated yet. Hold the hotkey and speak.</li>`;
+    historyList.innerHTML = `<li class="empty">Nothing dictated yet. Press the hotkey and speak.</li>`;
     return;
   }
   for (const entry of history) {
@@ -111,11 +127,16 @@ renderHistory();
 const presetSelect = $<HTMLSelectElement>("hotkey-preset");
 const customField = $<HTMLDivElement>("hotkey-custom");
 const captureInput = $<HTMLInputElement>("hotkey");
+const captureModeSelect = $<HTMLSelectElement>("capture-mode");
+const captureHint = $<HTMLParagraphElement>("capture-hint");
 const feedbackBox = $<HTMLInputElement>("feedback");
 const engineEl = $<HTMLParagraphElement>("engine");
 const modelInput = $<HTMLInputElement>("model");
 const threadsInput = $<HTMLInputElement>("threads");
 const injectionSelect = $<HTMLSelectElement>("injection");
+const profileApp = $<HTMLInputElement>("profile-app");
+const profileStrategy = $<HTMLSelectElement>("profile-strategy");
+const profileList = $<HTMLUListElement>("profiles");
 const dictList = $<HTMLUListElement>("dict");
 const statusEl = $<HTMLSpanElement>("status");
 
@@ -294,39 +315,104 @@ presetSelect.onchange = () => {
 
 // ---- Everything else ---------------------------------------------------------
 
-function render() {
-  const preset = presetFor(config.hotkey);
-  presetSelect.value = preset;
-  customField.hidden = preset !== "custom";
-  captureInput.value = chordLabel(config.hotkey);
-  feedbackBox.checked = config.audio_feedback;
-  modelInput.value = config.model_path ?? "";
-  threadsInput.value = config.asr_threads?.toString() ?? "";
-  injectionSelect.value = config.injection;
+const CAPTURE_HINTS: Record<CaptureMode, string> = {
+  hold: "Hold to dictate, release to insert. Applies as soon as you save.",
+  latch:
+    "Tap to start, tap again to insert. Nothing has to be held down, which matters if holding a chord is painful or impossible. A latched capture stops on its own at five minutes.",
+};
 
+const STRATEGY_LABELS: Record<Strategy, string> = {
+  auto: "Auto",
+  paste: "Always paste",
+  type: "Always type",
+};
+
+function renderProfiles() {
+  profileList.innerHTML = "";
+  const entries = Object.entries(config.profiles ?? {});
+  if (entries.length === 0) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No overrides. Every app uses the strategy above.";
+    profileList.append(li);
+    return;
+  }
+  for (const [app, strategy] of entries) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "app";
+    name.textContent = app;
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = "→";
+    const value = document.createElement("strong");
+    value.textContent = STRATEGY_LABELS[strategy] ?? strategy;
+    const del = document.createElement("button");
+    del.textContent = "Remove";
+    del.onclick = () => {
+      delete config.profiles[app];
+      renderProfiles();
+    };
+    li.append(name, arrow, value, del);
+    profileList.append(li);
+  }
+}
+
+function renderDictionary() {
   dictList.innerHTML = "";
   const entries = Object.entries(config.dictionary ?? {});
   if (entries.length === 0) {
-    dictList.innerHTML = `<li class="empty">No corrections yet.</li>`;
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No corrections yet.";
+    dictList.append(li);
     return;
   }
   for (const [heard, want] of entries) {
     const li = document.createElement("li");
-    li.innerHTML = `<span>${heard}</span><span class="arrow">→</span><strong>${want}</strong>`;
+    // Built as nodes rather than innerHTML: these strings come from the
+    // config file, which people edit by hand.
+    const from = document.createElement("span");
+    from.textContent = heard;
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = "→";
+    const to = document.createElement("strong");
+    to.textContent = want;
     const del = document.createElement("button");
     del.textContent = "Remove";
     del.style.marginLeft = "auto";
     del.onclick = () => {
       delete config.dictionary[heard];
-      render();
+      renderDictionary();
     };
-    li.append(del);
+    li.append(from, arrow, to, del);
     dictList.append(li);
   }
 }
 
+function render() {
+  const preset = presetFor(config.hotkey);
+  presetSelect.value = preset;
+  customField.hidden = preset !== "custom";
+  captureInput.value = chordLabel(config.hotkey);
+  captureModeSelect.value = config.capture_mode;
+  captureHint.textContent = CAPTURE_HINTS[config.capture_mode];
+  feedbackBox.checked = config.audio_feedback;
+  modelInput.value = config.model_path ?? "";
+  threadsInput.value = config.asr_threads?.toString() ?? "";
+  injectionSelect.value = config.injection;
+  renderProfiles();
+  renderDictionary();
+}
+
 feedbackBox.onchange = () => {
   config.audio_feedback = feedbackBox.checked;
+};
+
+captureModeSelect.onchange = () => {
+  config.capture_mode = captureModeSelect.value as CaptureMode;
+  render();
 };
 
 injectionSelect.onchange = () => {
@@ -340,7 +426,29 @@ $("add").onclick = () => {
   config.dictionary = { ...config.dictionary, [heard]: want };
   $<HTMLInputElement>("heard").value = "";
   $<HTMLInputElement>("want").value = "";
-  render();
+  renderDictionary();
+};
+
+$("profile-add").onclick = () => {
+  // Lowercased to match how the Rust side reports the foreground executable.
+  const app = profileApp.value.trim().toLowerCase();
+  if (!app) return;
+  config.profiles = { ...config.profiles, [app]: profileStrategy.value as Strategy };
+  profileApp.value = "";
+  renderProfiles();
+};
+
+$("detect").onclick = async () => {
+  statusEl.textContent = "Focus the app you want a profile for…";
+  setTimeout(async () => {
+    const app = await invoke<string | null>("foreground_app");
+    if (!app) {
+      statusEl.textContent = "Could not identify that app.";
+      return;
+    }
+    profileApp.value = app;
+    statusEl.textContent = `Detected ${app}. Pick a strategy and add it.`;
+  }, 3000);
 };
 
 $("test").onclick = async () => {
@@ -354,10 +462,84 @@ $("test").onclick = async () => {
 $("save").onclick = async () => {
   try {
     await invoke("set_config", { new: config });
-    statusEl.textContent = `Saved. Hold ${chordLabel(config.hotkey)} to dictate.`;
+    const verb = config.capture_mode === "latch" ? "Tap" : "Hold";
+    statusEl.textContent = `Saved. ${verb} ${chordLabel(config.hotkey)} to dictate.`;
   } catch (e) {
     statusEl.textContent = `Failed: ${e}`;
   }
 };
 
+// ---- Your data ----------------------------------------------------------------
+
+const factsList = $<HTMLDListElement>("data-facts");
+
+function bytes(n: number | null): string {
+  if (n === null) return "not written yet";
+  if (n < 1024) return `${n} bytes`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function fact(term: string, value: string, ok = false) {
+  const row = document.createElement("div");
+  const dt = document.createElement("dt");
+  dt.textContent = term;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  if (ok) dd.dataset.ok = "";
+  row.append(dt, dd);
+  factsList.append(row);
+}
+
+async function renderData() {
+  const report = await invoke<DataReport>("data_report");
+  factsList.innerHTML = "";
+  fact(
+    "Recognition",
+    report.engine ? `${report.engine}, on this device` : "no engine loaded",
+    report.engine !== null,
+  );
+  fact("Model", report.model_path ?? "none chosen — nothing is transcribed");
+  fact("Settings", report.config_path ?? "unavailable");
+  fact(
+    "History",
+    report.history_path
+      ? `${report.history_entries} entries, ${bytes(report.history_bytes)}\n${report.history_path}`
+      : "not stored on disk",
+  );
+  fact("Network", "no HTTP client, no TLS stack, no telemetry", true);
+}
+
+$("open-folder").onclick = async () => {
+  try {
+    await invoke("open_data_folder");
+  } catch (e) {
+    statusEl.textContent = `Could not open the folder: ${e}`;
+  }
+};
+
+$("export").onclick = async () => {
+  try {
+    const path = await invoke<string | null>("export_history");
+    statusEl.textContent = path ? `Exported to ${path}` : "Export cancelled.";
+  } catch (e) {
+    statusEl.textContent = `Export failed: ${e}`;
+  }
+};
+
+$("forget").onclick = async () => {
+  if (history.length === 0) {
+    statusEl.textContent = "There is no history to delete.";
+    return;
+  }
+  // Irreversible and there is no undo, so it asks once.
+  if (!confirm(`Delete all ${history.length} transcripts? This cannot be undone.`)) return;
+  await invoke("clear_history");
+  history = [];
+  renderHistory();
+  await renderData();
+  statusEl.textContent = "History deleted.";
+};
+
 render();
+await renderData();

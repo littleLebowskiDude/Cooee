@@ -6,6 +6,8 @@ type State = "idle" | "capturing" | "transcribing" | "injecting" | "error";
 interface StatusEvent {
   state: State;
   detail?: string;
+  /** A capture with no key held down. The pill has to say how to end it. */
+  latched: boolean;
 }
 
 const LABELS: Record<State, string> = {
@@ -18,6 +20,7 @@ const LABELS: Record<State, string> = {
 
 const pill = document.getElementById("pill")!;
 const label = document.getElementById("label")!;
+const hint = document.getElementById("hint")!;
 const bars = Array.from(document.querySelectorAll<HTMLSpanElement>("#bars span"));
 const overlay = getCurrentWindow();
 
@@ -38,6 +41,15 @@ function releaseBars() {
 await listen<StatusEvent>("status", async ({ payload }) => {
   pill.dataset.state = payload.state;
   label.textContent = payload.detail ?? LABELS[payload.state];
+  // Nothing is being held down, so the pill carries the way out. Without it a
+  // latched capture is indistinguishable from a hotkey that has jammed.
+  if (payload.latched && payload.state === "capturing") {
+    pill.dataset.latched = "";
+    hint.textContent = "tap to stop";
+  } else {
+    delete pill.dataset.latched;
+    hint.textContent = "";
+  }
   releaseBars();
 
   clearTimeout(hideTimer);

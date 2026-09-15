@@ -1,9 +1,17 @@
-//! Short audible cues for capture start and stop.
+//! Short audible cues for capture start, capture stop, and a dictation that
+//! produced nothing.
 //!
 //! Useful when the overlay is out of sight — a second monitor, a full-screen
 //! app — and as confirmation that the hotkey registered at all. Two notes,
 //! rising for start and falling for stop, each short enough to finish before
 //! the first word.
+//!
+//! The third cue exists because the overlay is not an accessible surface: it
+//! is a transparent window that deliberately never takes focus, so a screen
+//! reader has nothing to announce and a live region would not be read
+//! reliably. Sound is the channel that works regardless of focus, and until
+//! this existed a failed dictation was *silent* — identical, to anyone not
+//! watching the pill, to one that worked.
 //!
 //! Best-effort and off the pipeline thread: opening a WASAPI output stream
 //! costs tens of milliseconds, and a missing cue must never delay capture.
@@ -19,13 +27,27 @@ use std::time::Duration;
 pub enum Tone {
     Start,
     Stop,
+    /// The utterance ended with nothing inserted: no speech, an engine error,
+    /// or text that polished away to nothing.
+    Failed,
 }
 
 impl Tone {
     fn hz(self) -> f32 {
         match self {
-            Tone::Start => 880.0, // A5
-            Tone::Stop => 587.33, // D5
+            Tone::Start => 880.0,   // A5
+            Tone::Stop => 587.33,   // D5
+            Tone::Failed => 329.63, // E4, nearly an octave under the stop cue
+        }
+    }
+
+    /// The failure cue is longer as well as lower. Someone who cannot see the
+    /// pill should not have to compare two pitches from memory to work out
+    /// whether their words landed.
+    fn duration_ms(self) -> u32 {
+        match self {
+            Tone::Failed => 180,
+            _ => DURATION_MS,
         }
     }
 }
@@ -83,7 +105,7 @@ fn play_blocking(tone: Tone) -> Result<()> {
         return Err(anyhow!("output device reported zero channels"));
     }
 
-    let pcm = samples(tone.hz(), rate, DURATION_MS);
+    let pcm = samples(tone.hz(), rate, tone.duration_ms());
     let on_error = |e| tracing::debug!("tone stream error: {e}");
 
     // The callback walks `pcm` once and then emits silence until dropped.
@@ -117,7 +139,7 @@ fn play_blocking(tone: Tone) -> Result<()> {
 
     stream.play().context("failed to start output stream")?;
     // Hold the stream open past the tone so the tail is not cut off.
-    std::thread::sleep(Duration::from_millis(DURATION_MS as u64 + 60));
+    std::thread::sleep(Duration::from_millis(tone.duration_ms() as u64 + 60));
     Ok(())
 }
 
@@ -151,5 +173,24 @@ mod tests {
     #[test]
     fn start_and_stop_are_distinguishable() {
         assert!(Tone::Start.hz() > Tone::Stop.hz());
+    }
+
+    #[test]
+    fn failure_is_unmistakable_by_ear() {
+        // Lower than both, so it cannot be mistaken for a normal stop...
+        assert!(Tone::Failed.hz() < Tone::Stop.hz());
+        assert!(Tone::Failed.hz() < Tone::Start.hz());
+        // ...and longer, so the two do not have to be told apart by pitch.
+        assert!(Tone::Failed.duration_ms() > Tone::Stop.duration_ms());
+    }
+
+    #[test]
+    fn every_cue_stays_within_the_amplitude_ceiling() {
+        for tone in [Tone::Start, Tone::Stop, Tone::Failed] {
+            let pcm = samples(tone.hz(), 48_000, tone.duration_ms());
+            let peak = pcm.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+            assert!(peak <= AMPLITUDE + 1e-6, "{tone:?} peaked at {peak}");
+            assert_eq!(pcm[0], 0.0, "{tone:?} must fade in");
+        }
     }
 }

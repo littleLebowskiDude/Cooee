@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Entries kept. At a few hundred bytes each this is well under a megabyte.
@@ -43,7 +43,9 @@ impl History {
     /// Loads the file, or starts empty: history that cannot be read is not
     /// worth refusing to dictate over.
     pub fn load() -> Self {
-        let path = crate::config::config_dir().ok().map(|d| d.join("history.json"));
+        let path = crate::config::config_dir()
+            .ok()
+            .map(|d| d.join("history.json"));
         let file = path
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
@@ -54,7 +56,10 @@ impl History {
 
     /// In-memory only, for tests.
     pub fn in_memory() -> Self {
-        Self { file: File::default(), path: None }
+        Self {
+            file: File::default(),
+            path: None,
+        }
     }
 
     pub fn push(&mut self, text: String, inference_ms: u64, elapsed_ms: u64) -> Entry {
@@ -63,7 +68,12 @@ impl History {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         let last = self.file.entries.last().map(|e| e.id).unwrap_or(0);
-        let entry = Entry { id: now.max(last + 1), text, inference_ms, elapsed_ms };
+        let entry = Entry {
+            id: now.max(last + 1),
+            text,
+            inference_ms,
+            elapsed_ms,
+        };
         self.file.entries.push(entry.clone());
         if self.file.entries.len() > CAP {
             let excess = self.file.entries.len() - CAP;
@@ -76,6 +86,35 @@ impl History {
     /// Newest first, as the window lists them.
     pub fn entries(&self) -> Vec<Entry> {
         self.file.entries.iter().rev().cloned().collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.file.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.file.entries.is_empty()
+    }
+
+    /// Where the transcripts are kept. `None` when the config directory could
+    /// not be resolved, in which case nothing is written to disk at all.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// Size of the file on disk, in bytes. `None` before anything is saved.
+    pub fn bytes(&self) -> Option<u64> {
+        self.path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len())
+    }
+
+    /// Everything, oldest first, indented. The export is for a person reading
+    /// their own transcripts or handing them to someone who asked what the
+    /// app kept, so it is formatted rather than the compact on-disk form.
+    pub fn export_json(&self) -> Result<String> {
+        serde_json::to_string_pretty(&self.file).context("serialising history for export")
     }
 
     pub fn remove(&mut self, id: u64) {

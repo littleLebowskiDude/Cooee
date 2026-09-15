@@ -63,6 +63,21 @@ body {
   white-space: nowrap;
 }
 
+/* The way out of a latched capture. Empty in hold mode, where the key being
+   held is itself the answer, so the pill keeps its usual width. */
+.hint {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: var(--text);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.pill:not([data-latched]) .hint {
+  display: none;
+}
+
 /* Level meter. Bar heights are driven from TS during capture. */
 .bars {
   display: flex;
