@@ -63,6 +63,28 @@ Hold **Ctrl+Win**, speak, release. The mock engine inserts a line reporting
 the captured duration and peak amplitude — enough to confirm the hook, the mic,
 and injection all work before adding a model.
 
+### Build it through the Tauri CLI, not `cargo build`
+
+`cargo build --release` produces a binary that **dictates perfectly and has no
+usable interface**. Tauri only embeds `dist/` when the `custom-protocol`
+feature is on, which the Tauri CLI passes for you and a bare cargo invocation
+does not. Without it the webview loads `devUrl` — `http://localhost:1420` —
+so the settings window shows `ERR_CONNECTION_REFUSED` and the overlay pill
+silently never appears, while the hotkey, capture, transcription and injection
+all work exactly as they should. Every one of those lives in Rust and never
+touches the webview, so nothing in the logs looks wrong.
+
+```powershell
+npm run tauri build -- --features onnx,whisper    # correct
+cargo build --release --features onnx,whisper     # dictates, but no UI
+```
+
+If you do want cargo directly, ask for the feature by hand:
+
+```powershell
+cargo build --release --features onnx,whisper,tauri/custom-protocol
+```
+
 ## Hotkey
 
 The default is **Ctrl+Win**, the same chord Wispr Flow uses on Windows. It was
