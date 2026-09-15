@@ -11,21 +11,27 @@ out of sight. "Within cooee" means close enough to hear. See
 
 Built as a clone of [Wispr Flow](https://wisprflow.ai)'s core loop.
 
-**Version 1.0.1**, 2026-09-05. See [CHANGELOG.md](CHANGELOG.md).
+**Version 1.1.0**, 2026-09-14. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Status
 
-**Working.** Hold Ctrl+Win, speak, release — polished text lands in whatever
-app has focus. Transcription is local whisper.cpp on ARM64 NEON; no network, no
+**Working.** Press Ctrl+Win, speak, and polished text lands in whatever app
+has focus. Hold the chord for the utterance, or switch to latch mode and tap
+once to start and once to stop. Transcription is local; no network, no
 account, no telemetry.
 
 | Check | Result |
 |---|---|
-| `cargo test` | 36/36 |
+| `cargo test` | 67/67 |
 | `cargo clippy --all-targets` | 0 warnings (with and without `whisper`) |
-| `cargo fmt --check` | clean |
 | `tsc --noEmit` | clean |
 | `vite build` | clean |
+| `tools/no-network.ps1` | passes (default and `onnx,whisper`) |
+
+`cargo fmt --check` is clean for every file touched since 1.0.1, but not for
+the tree as a whole: rustfmt 1.98 reformats parts of the ONNX engine and
+`examples/` that an earlier rustfmt wrote. Reformatting them is a separate
+commit, not something to bury inside a feature change.
 
 Measured on a Snapdragon X Elite: 2.2 s for 13.6 s of speech with `base.en` at
 4 threads on an idle machine, so ~6x realtime. Bigger models and more threads
@@ -84,6 +90,39 @@ and F-keys (behind Fn on most laptops).
 `hotkey` in `config.json` is an array of virtual-key codes; a 0.1.0 `hotkey_vk`
 is migrated to a one-key array on load.
 
+## Capture mode
+
+**Hold** (the default) is push-to-talk: the chord stays down for the whole
+utterance. **Latch** starts on one tap and inserts on the next, so nothing has
+to be held.
+
+Latch is not a convenience. Holding two keys steady for the length of a
+sentence is the assumption that rules dictation out for RSI, tremor, limited
+dexterity, one-handed use and switch devices, which is to say for a large part
+of the population that most needs to talk instead of type.
+
+Two consequences worth knowing:
+
+- The pill says **"tap to stop"** while latched. Without a key held down,
+  a latched capture is otherwise indistinguishable from a jammed hotkey.
+- A latched capture **ends itself at the five-minute ceiling**. Nothing past
+  it is recorded anyway, and leaving the microphone open with nothing left to
+  capture is not a thing this app should do.
+
+The decision lives in `pipeline.rs` and not in the keyboard hook, deliberately:
+the hook runs under a ~300 ms deadline enforced by Windows, and the pipeline
+does not. See [`action`](src-tauri/src/pipeline.rs).
+
+## Sound
+
+Three cues, each optional and on by default: A5 rising into capture, D5 falling
+out of it, and E4 — lower and longer — when an utterance inserted nothing.
+
+The third exists because the overlay is a transparent window that never takes
+focus, so a screen reader has nothing to announce and a live region on it would
+not be read reliably. Before it, a failed dictation was silent and sounded
+exactly like one that worked.
+
 ## Dictionary
 
 Settings → Dictionary maps what whisper hears to what you meant (`kui` →
@@ -97,6 +136,56 @@ Settings → Dictionary maps what whisper hears to what you meant (`kui` →
    spell phonetically, so the correction rarely has to fire. The prompt is
    capped at 200 characters: a long one costs decoder context, and on a
    near-silent clip whisper is prone to echoing its prompt back.
+
+## Insertion
+
+Text goes in by synthesised keystrokes or by a clipboard paste, and neither
+works everywhere: some Electron apps drop synthesised characters, and some
+fields refuse a paste outright. **Auto** pastes past 120 characters and types
+below it.
+
+**Per-app profiles** override that for one executable:
+
+```json
+"profiles": {
+  "windowsterminal.exe": "type",
+  "ms-teams.exe": "paste"
+}
+```
+
+Nothing is configured out of the box, so an upgrade changes no behaviour until
+you add a profile. Settings → Per-app insertion has a **Detect** button that
+names the app you switch to, which saves knowing that Windows Terminal ships as
+`WindowsTerminal.exe`.
+
+The strategy is resolved at the moment of insertion rather than when the
+transcript is polished, because focus can move while the model is working and
+the only window that matters is the one about to receive the text.
+
+## Your data
+
+Everything the app keeps is in `%APPDATA%\cooee`: `config.json` and
+`history.json`, both plain JSON. Settings → Your data names them, shows the
+entry count and file size, and offers export, delete-all, and open-folder.
+
+The local-only claim is checkable rather than merely stated:
+
+```powershell
+.\tools\no-network.ps1                          # default features
+.\tools\no-network.ps1 -Features onnx,whisper   # as shipped
+```
+
+It walks the real dependency tree and fails if an HTTP client, a TLS stack, a
+websocket or QUIC transport, or a DNS resolver is linked in — without at least
+one of those, nothing in the binary can originate an outbound request. It also
+fails on any *unrecognised* networking-capable crate, so it cannot quietly rot
+the first time a dependency is added.
+
+It prints the network-adjacent crates that are present rather than hiding them:
+`http` is a types-only crate with no transport, and `tokio` is the Tauri event
+loop plus the local named pipe that makes a second launch focus the running
+window. A claim that omits its awkward parts is worth less than one that
+explains them.
 
 ## Real transcription
 
@@ -320,8 +409,8 @@ failed. What actually worked:
 
 ```
 src-tauri/src/
-  pipeline.rs      state machine — owns all transitions
-  hotkey.rs        WH_KEYBOARD_LL push-to-talk chord  ← read the header comment
+  pipeline.rs      state machine — owns all transitions, hold and latch
+  hotkey.rs        WH_KEYBOARD_LL chord  ← read the header comment
   audio.rs         WASAPI capture → 16 kHz mono
   vad.rs           silence trimming
   asr/
@@ -329,13 +418,19 @@ src-tauri/src/
     mock.rs        canned output; no toolchain required
     whisper_cpp.rs real inference (feature = "whisper")
   polish.rs        fillers, spoken punctuation, dictionary, capitalisation
+  focus.rs         which executable has focus, for per-app profiles
   inject.rs        SendInput / clipboard paste
+  caret.rs         what sits either side of the caret, via UI Automation
   overlay.rs       places the HUD bottom-centre of the focused window's monitor
-  tone.rs          start/stop cues on the default output device
-  config.rs        settings + personal dictionary
+  tone.rs          start, stop and nothing-landed cues
+  history.rs       transcripts kept on disk, capped
+  config.rs        settings, per-app profiles, personal dictionary
 src/
   overlay/         floating HUD pill
-  settings/        settings window
+  settings/        history, settings, and the data panel
+tools/
+  no-network.ps1   fails if anything that can reach the internet is linked in
+  make-icon.cjs    regenerates every icon size from the mark
 ```
 
 Cooee has **no primary window**. The overlay is transient and settings starts
@@ -354,8 +449,15 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the reasoning behind each choice.
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Covers VAD trimming, the polish rules, and whole-word dictionary replacement —
-the three places where a subtle bug quietly corrupts the user's text.
+67 tests. They concentrate on the places where a subtle bug quietly corrupts
+the user's text or their expectations: VAD trimming, the polish rules,
+whole-word dictionary replacement, the hold/latch state machine, and profile
+resolution falling back to the global strategy.
+
+Two are there specifically to stop a regression nobody would notice quickly:
+a 1.0.1 config must still load and come up in **hold** mode with no profiles,
+and the date routine behind the export filename is checked against known
+dates including a leap day and both kinds of century year.
 
 ## Branding
 
@@ -377,7 +479,12 @@ node tools/make-icon.cjs src-tauri/icons
 - `large-v3-turbo` on the NPU: parked, its encoder did not finish compiling
   in an hour. The decoder on the NPU needs a static-length export. See
   [docs/NPU.md](docs/NPU.md).
-- Per-app injection profiles
+- Code signing. The real fix for the Defender false positive above, and it
+  needs a certificate.
+- Dictation history is plain JSON on disk. Encrypting it at rest would mean
+  a key, and a key on the same machine protects against less than it looks
+  like it does; the honest interim answer is that the settings panel tells
+  you exactly where the file is.
 
 ## Tried and removed
 
