@@ -41,6 +41,65 @@ The polish pass is rule-based by decision, not by omission: an LLM pass was buil
 and benchmarked, then rejected. See
 [docs/PHI-SILICA.md](docs/PHI-SILICA.md).
 
+## Install
+
+Installers are on the [releases page](https://github.com/littleLebowskiDude/Cooee/releases).
+**Windows 11 on ARM64 only** — a Snapdragon X machine. There is no x64 build,
+and the NPU is the entire point.
+
+Three steps, about ten minutes, most of it waiting for the model to download.
+
+**1. Install the app.** Either installer works; the `.exe` is NSIS and the
+`.msi` is Windows Installer. The download is 37–53 MB and it lands at about
+144 MB installed, most of which is ONNX Runtime and the Qualcomm QNN libraries
+needed to reach the NPU. Qualcomm's licence and the third-party notices are
+bundled alongside them.
+
+**2. Get a model.** Cooee ships without one, deliberately — see below. From a
+PowerShell prompt in a copy of this repo:
+
+```powershell
+.\tools\get-model.ps1                 # small.en, ~925 MB, the one to use
+.\tools\get-model.ps1 -Size base      # base.en, ~280 MB, if you just want a look
+```
+
+**3. Point Cooee at it.** Tray icon → cog → Model → **Folder…** → the
+`models\whisper-small.en-onnx` folder the script wrote. Save. The first load
+compiles the model for the NPU, which takes about 20 seconds and is cached;
+later launches take a couple of seconds.
+
+Then hold **Ctrl+Win**, speak, and release.
+
+### Why the model is not in the installer
+
+Partly size: the small.en export is 925 MB against a 140 MB app.
+
+Mostly this: giving Cooee the ability to fetch its own model would mean linking
+an HTTP client into it, and the local-only claim — the one
+[`tools/no-network.ps1`](tools/no-network.ps1) checks against the real
+dependency tree — would be gone. The download lives in a script you can read
+instead, and the app never opens a socket.
+
+### Defender will probably quarantine it
+
+An unsigned binary that installs a `WH_KEYBOARD_LL` hook, calls `SendInput` and
+touches the clipboard is, to a machine-learning classifier, indistinguishable
+from a keylogger. An installed build has been flagged as
+`Trojan:Win32/Bearfoos.A!ml` — the `!ml` suffix means a heuristic, not a
+signature match.
+
+It is a false positive, and it is also a completely reasonable guess given what
+the app does. **Code signing is the real fix** and this project does not have a
+certificate.
+
+If it happens: the byte-identical binary under `src-tauri\target\release\` runs
+fine, so building from source avoids it. You can report the false positive at
+[microsoft.com/wdsi/filesubmission](https://www.microsoft.com/wdsi/filesubmission)
+with the file's SHA-256. On a machine you administer, an exclusion works.
+
+Decide whether you trust a stranger's unsigned keyboard hook before you install
+it. The source is all here, and that is the honest answer to the question.
+
 ## Target
 
 **Windows 11 on ARM64** (Snapdragon X Elite). Build from a **native ARM64 shell**
@@ -452,6 +511,7 @@ src/
   settings/        history, settings, and the data panel
 tools/
   no-network.ps1   fails if anything that can reach the internet is linked in
+  get-model.ps1    downloads a whisper ONNX export into the expected layout
   make-icon.cjs    regenerates every icon size from the mark
 ```
 
